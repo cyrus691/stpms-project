@@ -1,3 +1,4 @@
+import * as React from "react";
 "use client";
 
 import { signOut, useSession } from "next-auth/react";
@@ -1025,16 +1026,16 @@ export default function BusinessPage() {
   };
 
   // Calculate totals
-  const now = new Date();
-  const currentMonth = now.getMonth();
-  const currentYear = now.getFullYear();
+  const currentDate = new Date();
+  const currentMonth = currentDate.getMonth();
+  const currentYear = currentDate.getFullYear();
   const expensesThisMonth = (Array.isArray(expenses) ? expenses : []).filter(exp => {
     const date = new Date(exp.occurredOn);
     return date.getMonth() === currentMonth && date.getFullYear() === currentYear;
   });
   const totalExpenses = (Array.isArray(expenses) ? expenses : []).reduce((sum, exp) => sum + exp.amount, 0);
   const totalExpensesThisMonth = expensesThisMonth.reduce((sum, exp) => sum + exp.amount, 0);
-  const averageDailyExpenses = expensesThisMonth.length > 0 ? totalExpensesThisMonth / now.getDate() : 0;
+  const averageDailyExpenses = expensesThisMonth.length > 0 ? totalExpensesThisMonth / currentDate.getDate() : 0;
   
   // Filtered expenses
   const filteredExpenses = useMemo(() => {
@@ -1081,7 +1082,7 @@ export default function BusinessPage() {
       const matchesEnd = !incomeDateEnd || saleDate <= new Date(incomeDateEnd);
       return matchesSearch && matchesType && matchesStart && matchesEnd;
     });
-  }, [cashSales, incomeSearch, incomeTypeFilter, incomeDateStart, incomeDateEnd]);
+  }, [cashSales, incomeSearch, incomeTypeFilter, incomeDateStart, incomeDateEnd, currencyRates]);
 
   const filteredCreditPayments = useMemo(() => {
     return creditInvoices.filter((inv) => {
@@ -1121,17 +1122,6 @@ export default function BusinessPage() {
     }
     return acc;
   }, new Map<string, number>());
-  const inventoryDecrease = inventory.map((item) => {
-    const soldQuantity = salesByProductId.get(item._id) ?? salesByProductName.get(item.name.toLowerCase()) ?? 0;
-    const remaining = item.quantityInStock;
-    return {
-      id: item._id,
-      name: item.name,
-      sku: item.sku,
-      soldQuantity,
-      remaining
-    };
-  });
   const formatCurrency = (amount: number) => {
     const rate = currencyRates[currency] ?? 1;
     return new Intl.NumberFormat("en-US", { style: "currency", currency }).format(amount * rate);
@@ -1566,7 +1556,6 @@ export default function BusinessPage() {
                         const totalIncome = cashSales.reduce((sum, sale) => sum + sale.totalAmount, 0) + creditInvoices.reduce((sum, inv) => sum + (typeof inv.balance === "number" && inv.balance < inv.amount ? inv.amount - inv.balance : 0), 0);
                         const total = totalIncome + totalExpenses;
                         const incomePercent = total > 0 ? (totalIncome / total) * 360 : 0;
-                        const expensePercent = total > 0 ? (totalExpenses / total) * 360 : 0;
                         return (
                           <div
                             className="h-full w-full rounded-full"
