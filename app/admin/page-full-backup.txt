@@ -1,0 +1,1308 @@
+"use client";
+
+import { signOut } from "next-auth/react";
+import { useRouter } from "next/navigation";
+import { useState, useEffect } from "react";
+
+interface User {
+  _id: string;
+  username: string;
+  email: string;
+  name: string;
+  role: string;
+  taskCount: number;
+  expenseTotal: number;
+  status: string;
+  createdAt: string;
+}
+
+interface Activity {
+  id: string;
+  user: string;
+  action: string;
+  type: string;
+  time: string;
+  icon: string;
+}
+
+export default function AdminPage() {
+  const router = useRouter();
+  const [activeSection, setActiveSection] = useState("overview");
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [students, setStudents] = useState<User[]>([]);
+  const [businessUsers, setBusinessUsers] = useState<User[]>([]);
+  const [activities, setActivities] = useState<Activity[]>([]);
+  const [stats, setStats] = useState({
+    studentsGrowth: 0,
+    businessGrowth: 0,
+    tasksGrowth: 0,
+    previousStudents: 0,
+    previousBusiness: 0,
+    previousTasks: 0
+  });
+  const [chartData, setChartData] = useState({
+    userGrowth: [] as { month: string; students: number; business: number }[],
+    taskDistribution: { pending: 0, completed: 0 }
+  });
+  const [loading, setLoading] = useState(false);
+  const [editingUser, setEditingUser] = useState<User | null>(null);
+  const [editFormData, setEditFormData] = useState({
+    username: "",
+    email: "",
+    name: "",
+    role: "",
+    password: ""
+  });
+  const [showResetModal, setShowResetModal] = useState(false);
+  const [resetUserId, setResetUserId] = useState<string | null>(null);
+
+  // Initialize arrays to prevent undefined errors
+
+  useEffect(() => {
+    // Defer data loading to make page interactive immediately
+    const timer = setTimeout(() => fetchUsers(), 100);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const fetchUsers = async () => {
+    try {
+      setLoading(true);
+      
+      // Fetch students, business users, and activities in parallel
+      const [studentsRes, businessRes, activitiesRes] = await Promise.all([
+        fetch("/api/users?role=student"),
+        fetch("/api/users?role=business"),
+        fetch("/api/activities")
+      ]);
+      
+      const [studentsData, businessData, activitiesData] = await Promise.all([
+        studentsRes.json(),
+        businessRes.json(),
+        activitiesRes.json()
+      ]);
+      
+      setStudents(studentsData);
+      setBusinessUsers(businessData);
+      setActivities(activitiesData);
+      
+      // Calculate growth percentages and chart data
+      calculateGrowthAndCharts(studentsData, businessData);
+    } catch (error) {
+      console.error("Error fetching users:", error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const calculateGrowthAndCharts = (studentsData: User[], businessData: User[]) => {
+    // Calculate users created in last 7 days vs previous 7 days
+    const now = new Date();
+    const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    const fourteenDaysAgo = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000);
+
+    // Students growth
+    const recentStudents = studentsData.filter(s => s.createdAt && new Date(s.createdAt) >= sevenDaysAgo).length;
+    const previousStudents = studentsData.filter(s => {
+      if (!s.createdAt) return false;
+      const date = new Date(s.createdAt);
+      return date >= fourteenDaysAgo && date < sevenDaysAgo;
+    }).length;
+    
+    let studentsGrowth = 0;
+    if (previousStudents > 0) {
+      studentsGrowth = ((recentStudents - previousStudents) / previousStudents) * 100;
+    } else if (recentStudents > 0) {
+      studentsGrowth = 100;
+    }
+
+    // Business users growth
+    const recentBusiness = businessData.filter(b => b.createdAt && new Date(b.createdAt) >= sevenDaysAgo).length;
+    const previousBusiness = businessData.filter(b => {
+      if (!b.createdAt) return false;
+      const date = new Date(b.createdAt);
+      return date >= fourteenDaysAgo && date < sevenDaysAgo;
+    }).length;
+    
+    let businessGrowth = 0;
+    if (previousBusiness > 0) {
+      businessGrowth = ((recentBusiness - previousBusiness) / previousBusiness) * 100;
+    } else if (recentBusiness > 0) {
+      businessGrowth = 100;
+    }
+
+    // Tasks growth
+    const totalTasks = studentsData.reduce((sum, s) => sum + (s.taskCount || 0), 0) + 
+                       businessData.reduce((sum, b) => sum + (b.taskCount || 0), 0);
+    const totalUsers = studentsData.length + businessData.length;
+    const avgTasksPerUser = totalUsers > 0 ? totalTasks / totalUsers : 0;
+    const tasksGrowth = totalUsers > 0 ? Math.min((avgTasksPerUser * 20), 50) : 0;
+
+    setStats({
+      studentsGrowth: Math.round(studentsGrowth * 10) / 10,
+      businessGrowth: Math.round(businessGrowth * 10) / 10,
+      tasksGrowth: Math.round(tasksGrowth * 10) / 10,
+      previousStudents,
+      previousBusiness,
+      previousTasks: 0
+    });
+
+    // Calculate chart data - last 3 days
+    const daysData = [];
+    for (let i = 2; i >= 0; i--) {
+      const dayDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i);
+      const nextDayDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i + 1);
+      const dayName = dayDate.toLocaleDateString('default', { month: 'short', day: 'numeric' });
+      
+      const studentsCount = studentsData.filter(s => {
+        if (!s.createdAt) return false;
+        const date = new Date(s.createdAt);
+        return date >= dayDate && date < nextDayDate;
+      }).length;
+      
+      const businessCount = businessData.filter(b => {
+        if (!b.createdAt) return false;
+        const date = new Date(b.createdAt);
+        return date >= dayDate && date < nextDayDate;
+      }).length;
+      
+      daysData.push({
+        month: dayName,
+        students: studentsCount,
+        business: businessCount
+      });
+    }
+    
+    // Calculate cumulative totals
+    let cumulativeStudents = 0;
+    let cumulativeBusiness = 0;
+    const cumulativeData = daysData.map(day => {
+      cumulativeStudents += day.students;
+      cumulativeBusiness += day.business;
+      return {
+        month: day.month,
+        students: cumulativeStudents,
+        business: cumulativeBusiness
+      };
+    });
+    
+    setChartData({
+      userGrowth: cumulativeData,
+      taskDistribution: {
+        pending: Math.floor(totalTasks * 0.7),
+        completed: Math.floor(totalTasks * 0.3)
+      }
+    });
+  };
+
+  const handleSeedData = async () => {
+    if (!confirm("This will create sample users and data for testing. Continue?")) return;
+    
+    try {
+      const response = await fetch("/api/seed/users", { method: "POST" });
+      const data = await response.json();
+      alert(data.message);
+      if (response.ok) {
+        fetchUsers(); // Refresh the user list
+      }
+    } catch (error) {
+      alert("Error seeding data. Check console for details.");
+      console.error(error);
+    }
+  };
+
+  const menuItems = [
+    { id: "overview", label: "Overview", icon: <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg> },
+    { id: "students", label: "Students", icon: <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" /></svg> },
+    { id: "business", label: "Business Users", icon: <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg> },
+    { id: "announcements", label: "Announcements", icon: <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5.882V19.24a1.76 1.76 0 01-3.417.592l-2.147-6.15M18 13a3 3 0 100-6M5.436 13.683A4.001 4.001 0 017 6h1.832c4.1 0 7.625-1.234 9.168-3v14c-1.543-1.766-5.067-3-9.168-3H7a3.988 3.988 0 01-1.564-.317z" /></svg> },
+    { id: "tasks", label: "Tasks", icon: <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" /></svg> },
+    { id: "timetable", label: "Timetables", icon: <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg> },
+    { id: "reports", label: "Audit Reports", icon: <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg> },
+    { id: "settings", label: "Settings", icon: <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg> }
+  ];
+
+  const handleLogout = async () => {
+    await signOut({ redirect: false });
+    router.push("/");
+  };
+
+  const handleEditUser = (user: User) => {
+    setEditingUser(user);
+    setEditFormData({
+      username: user.username,
+      email: user.email,
+      name: user.name,
+      role: user.role,
+      password: ""
+    });
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editingUser) return;
+
+    try {
+      const response = await fetch("/api/users", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          _id: editingUser._id,
+          ...editFormData
+        })
+      });
+
+      if (response.ok) {
+        alert("User updated successfully!");
+        setEditingUser(null);
+        fetchUsers();
+      } else {
+        const data = await response.json();
+        alert(data.error || "Failed to update user");
+      }
+    } catch (error) {
+      console.error("Error updating user:", error);
+      alert("Error updating user");
+    }
+  };
+
+  const handleDeleteUser = async (userId: string, userName: string) => {
+    if (!confirm(`Are you sure you want to delete ${userName}? This will also delete all their associated data.`)) {
+      return;
+    }
+
+    try {
+      const response = await fetch(`/api/users?id=${userId}`, {
+        method: "DELETE"
+      });
+
+      if (response.ok) {
+        alert("User deleted successfully!");
+        fetchUsers();
+      } else {
+        const data = await response.json();
+        alert(data.error || "Failed to delete user");
+      }
+    } catch (error) {
+      console.error("Error deleting user:", error);
+      alert("Error deleting user");
+    }
+  };
+
+  const handleResetPassword = async (userId: string) => {
+    const newPassword = prompt("Enter new password for user:");
+    if (!newPassword) return;
+
+    try {
+      const response = await fetch("/api/users", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          _id: userId,
+          password: newPassword
+        })
+      });
+
+      if (response.ok) {
+        alert("Password reset successfully!");
+      } else {
+        const data = await response.json();
+        alert(data.error || "Failed to reset password");
+      }
+    } catch (error) {
+      console.error("Error resetting password:", error);
+      alert("Error resetting password");
+    }
+  };
+
+  function getTimeAgo(dateString: string) {
+    if (!dateString) return "Just now";
+    
+    const date = new Date(dateString);
+    if (isNaN(date.getTime())) return "Just now";
+    
+    const now = new Date();
+    const seconds = Math.floor((now.getTime() - date.getTime()) / 1000);
+    
+    if (seconds < 0) return "Just now";
+    if (seconds < 60) return `${seconds}s ago`;
+    const minutes = Math.floor(seconds / 60);
+    if (minutes < 60) return `${minutes}m ago`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `${hours}h ago`;
+    const days = Math.floor(hours / 24);
+    if (days < 7) return `${days}d ago`;
+    const weeks = Math.floor(days / 7);
+    if (weeks < 4) return `${weeks}w ago`;
+    return date.toLocaleDateString();
+  }
+
+  // Debug: This should be inside AdminPage
+  console.log("AdminPage rendering");
+
+  return (
+    <div className="flex h-screen overflow-hidden bg-slate-50">
+      {/* Edit User Modal */}
+      {editingUser && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 p-4">
+          <div className="w-full max-w-md rounded-xl bg-white shadow-2xl">
+            <div className="border-b border-slate-200 px-6 py-4">
+              <h3 className="text-lg font-bold text-slate-900">Edit User</h3>
+            </div>
+            <div className="space-y-4 px-6 py-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Username</label>
+                <input
+                  type="text"
+                  value={editFormData.username}
+                  onChange={(e) => setEditFormData({...editFormData, username: e.target.value})}
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Email</label>
+                <input
+                  type="email"
+                  value={editFormData.email}
+                  onChange={(e) => setEditFormData({...editFormData, email: e.target.value})}
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Name</label>
+                <input
+                  type="text"
+                  value={editFormData.name}
+                  onChange={(e) => setEditFormData({...editFormData, name: e.target.value})}
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Role</label>
+                <select
+                  value={editFormData.role}
+                  onChange={(e) => setEditFormData({...editFormData, role: e.target.value})}
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                >
+                  <option value="student">Student</option>
+                  <option value="business">Business</option>
+                  <option value="admin">Admin</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">New Password (leave blank to keep current)</label>
+                <input
+                  type="password"
+                  value={editFormData.password}
+                  onChange={(e) => setEditFormData({...editFormData, password: e.target.value})}
+                  placeholder="Leave blank to keep current password"
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                />
+              </div>
+            </div>
+            <div className="flex gap-3 border-t border-slate-200 px-6 py-4">
+              <button
+                onClick={() => setEditingUser(null)}
+                className="flex-1 rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSaveEdit}
+                className="flex-1 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+              >
+                Save Changes
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Mobile Menu Overlay */}
+      {mobileMenuOpen && (
+        <div
+          className="fixed inset-0 z-40 bg-black bg-opacity-50 lg:hidden"
+          onClick={() => setMobileMenuOpen(false)}
+        />
+      )}
+
+      {/* Sidebar */}
+      <aside
+        className={`fixed inset-y-0 left-0 z-50 flex w-64 flex-col border-r border-slate-200 bg-gradient-to-b from-blue-600 to-blue-800 text-white transition-transform duration-300 lg:relative lg:translate-x-0 ${
+          mobileMenuOpen ? "translate-x-0" : "-translate-x-full"
+        }`}
+      >
+        {/* Logo/Header */}
+        <div className="border-b border-blue-500 px-6 py-5">
+          <h1 className="text-xl font-bold">STMS Admin</h1>
+          <p className="mt-1 text-xs text-blue-200">System Management</p>
+        </div>
+
+        {/* Navigation */}
+        <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-4">
+          {menuItems.map((item) => (
+            <button
+              key={item.id}
+              onClick={() => {
+                setActiveSection(item.id);
+                setMobileMenuOpen(false);
+              }}
+              className={`flex w-full items-center gap-3 rounded-lg px-4 py-3 text-left text-sm font-medium transition ${
+                activeSection === item.id
+                  ? "bg-white text-blue-700 shadow-sm"
+                  : "text-blue-100 hover:bg-blue-700 hover:text-white"
+              }`}
+            >
+              {item.icon}
+              <span>{item.label}</span>
+            </button>
+          ))}
+        </nav>
+
+        {/* User info */}
+        <div className="border-t border-blue-500 px-6 py-4">
+          <div className="mb-3 flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-blue-400 text-sm font-bold">
+              A
+            </div>
+            <div className="flex-1">
+              <p className="text-sm font-semibold">Admin</p>
+              <p className="text-xs text-blue-200">Administrator</p>
+            </div>
+          </div>
+          <button
+            onClick={handleLogout}
+            className="w-full rounded-lg bg-red-500 px-4 py-2 text-sm font-semibold text-white transition hover:bg-red-600"
+          >
+            Logout
+          </button>
+        </div>
+      </aside>
+
+      {/* Main Content */}
+      <div className="flex flex-1 flex-col overflow-hidden">
+        {/* Top Bar */}
+        <header className="border-b border-slate-200 bg-white px-4 py-3 shadow-sm lg:px-6 lg:py-4">
+          <div className="flex items-center justify-between gap-3">
+            {/* Mobile Menu Button */}
+            <button
+              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+              className="rounded-lg border border-slate-300 bg-white p-2 text-slate-700 hover:bg-slate-50 lg:hidden"
+            >
+              <svg className="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+              </svg>
+            </button>
+
+            <div className="flex-1">
+              <h2 className="text-lg font-bold text-slate-900 lg:text-2xl">
+                {menuItems.find((m) => m.id === activeSection)?.label}
+              </h2>
+              <p className="hidden text-sm text-slate-600 sm:block">
+                Manage and monitor system activities
+              </p>
+            </div>
+            <div className="flex items-center gap-2 lg:gap-3">
+              <button className="hidden rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 sm:flex sm:items-center sm:gap-2 lg:px-4">
+                <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" /></svg>
+                <span className="hidden lg:inline">Notifications</span>
+              </button>
+              <button
+                onClick={handleLogout}
+                className="rounded-lg bg-red-500 px-3 py-2 text-sm font-semibold text-white hover:bg-red-600 lg:hidden"
+              >
+                Logout
+              </button>
+            </div>
+          </div>
+        </header>
+
+        {/* Content Area */}
+        <main className="flex-1 overflow-y-auto p-4 lg:p-6">
+          {activeSection === "overview" && (
+            <div className="space-y-6">
+              {/* Quick Actions Bar */}
+              <div className="flex flex-wrap gap-3">
+                <button className="flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-700">
+                  <span>➕</span> Add User
+                </button>
+                <button className="flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">
+                  <span>📢</span> New Announcement
+                </button>
+                <button className="flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">
+                  <span>📊</span> Generate Report
+                </button>
+                <button className="flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">
+                  <span>⚙️</span> System Settings
+                </button>
+              </div>
+
+              {/* Stats Grid */}
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                {[
+                  { 
+                    label: "Total Students", 
+                    value: loading ? "..." : (students?.length || 0).toString(), 
+                    change: stats.studentsGrowth > 0 ? `+${stats.studentsGrowth}%` : stats.studentsGrowth < 0 ? `${stats.studentsGrowth}%` : "—", 
+                    trend: stats.studentsGrowth > 0 ? "up" : stats.studentsGrowth < 0 ? "down" : "stable", 
+                    icon: "👨‍🎓" 
+                  },
+                  { 
+                    label: "Business Users", 
+                    value: loading ? "..." : (businessUsers?.length || 0).toString(), 
+                    change: stats.businessGrowth > 0 ? `+${stats.businessGrowth}%` : stats.businessGrowth < 0 ? `${stats.businessGrowth}%` : "—", 
+                    trend: stats.businessGrowth > 0 ? "up" : stats.businessGrowth < 0 ? "down" : "stable", 
+                    icon: "💼" 
+                  },
+                  { 
+                    label: "Active Tasks", 
+                    value: loading ? "..." : ((students?.reduce((sum, s) => sum + s.taskCount, 0) || 0) + (businessUsers?.reduce((sum, b) => sum + b.taskCount, 0) || 0)).toString(), 
+                    change: stats.tasksGrowth > 0 ? `+${stats.tasksGrowth}%` : stats.tasksGrowth < 0 ? `${stats.tasksGrowth}%` : "—", 
+                    trend: stats.tasksGrowth > 0 ? "up" : stats.tasksGrowth < 0 ? "down" : "stable", 
+                    icon: "✅" 
+                  },
+                  { 
+                    label: "System Health", 
+                    value: "98%", 
+                    change: "Excellent", 
+                    trend: "stable", 
+                    icon: "💚" 
+                  }
+                ].map((stat) => (
+                  <div
+                    key={stat.label}
+                    className="group cursor-pointer rounded-xl bg-white p-5 shadow-sm ring-1 ring-slate-200 transition hover:shadow-md hover:ring-blue-200"
+                  >
+                    <div className="flex items-center justify-between">
+                      <p className="text-sm font-medium text-slate-600">{stat.label}</p>
+                      <span className="text-2xl">{stat.icon}</span>
+                    </div>
+                    <div className="mt-3 flex items-baseline gap-2">
+                      <span className="text-3xl font-bold text-slate-900">{stat.value}</span>
+                      <span className={`text-xs font-semibold ${stat.trend === 'up' ? 'text-green-600' : 'text-blue-600'}`}>
+                        {stat.change}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Recent Activity */}
+              <div className="grid gap-6 lg:grid-cols-2">
+                <div className="rounded-xl bg-white p-4 shadow-sm ring-1 ring-slate-200 lg:p-6">
+                  <div className="mb-4 flex items-center justify-between">
+                    <h3 className="text-lg font-semibold text-slate-900">Recent Activity</h3>
+                    <button className="text-sm font-medium text-blue-600 hover:text-blue-700">View All →</button>
+                  </div>
+                  {loading ? (
+                    <div className="flex items-center justify-center py-8">
+                      <div className="h-8 w-8 animate-spin rounded-full border-4 border-blue-600 border-t-transparent"></div>
+                    </div>
+                  ) : (activities?.length || 0) === 0 ? (
+                    <div className="py-8 text-center text-sm text-slate-500">
+                      No recent activities
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      {activities?.slice(0, 5).map((activity) => {
+                        const timeAgo = getTimeAgo(activity.time);
+                        return (
+                          <div key={activity.id} className="flex items-center gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
+                            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-blue-100 text-xs font-bold text-blue-700">
+                              {activity.icon}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-medium text-slate-900 truncate">{activity.user}</p>
+                              <p className="text-xs text-slate-600 truncate">{activity.action}</p>
+                            </div>
+                            <span className="text-xs text-slate-500 whitespace-nowrap">{timeAgo}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+
+                <div className="rounded-xl bg-white p-4 shadow-sm ring-1 ring-slate-200 lg:p-6">
+                  <div className="mb-4 flex items-center justify-between">
+                    <h3 className="text-lg font-semibold text-slate-900">System Health</h3>
+                    <span className="rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-semibold text-green-700">All Systems Operational</span>
+                  </div>
+                  <div className="space-y-4">
+                    {[
+                      { label: "API Response Time", value: "125ms", status: "good", target: "< 200ms" },
+                      { label: "Database Load", value: "45%", status: "good", target: "< 80%" },
+                      { label: "Active Sessions", value: "324", status: "normal", target: "< 500" },
+                      { label: "Storage Used", value: "23.4 GB", status: "good", target: "< 50 GB" }
+                    ].map((metric) => (
+                      <div key={metric.label}>
+                        <div className="flex items-center justify-between text-sm">
+                          <span className="text-slate-700">{metric.label}</span>
+                          <div className="flex items-center gap-2">
+                            <span className="font-semibold text-slate-900">{metric.value}</span>
+                            <span className="h-2 w-2 rounded-full bg-green-500"></span>
+                          </div>
+                        </div>
+                        <div className="mt-1.5 h-2 overflow-hidden rounded-full bg-slate-100">
+                          <div className="h-full bg-gradient-to-r from-green-400 to-green-600" style={{ width: '45%' }}></div>
+                        </div>
+                        <p className="mt-1 text-xs text-slate-500">Target: {metric.target}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Chart Examples - Mobile Responsive */}
+              <div className="grid gap-6 lg:grid-cols-2">
+                {/* Bar Chart Example */}
+                <div className="rounded-xl bg-white p-4 shadow-sm ring-1 ring-slate-200 lg:p-6">
+                  <h3 className="mb-4 text-lg font-semibold text-slate-900">User Growth (Last 3 Days)</h3>
+                  <div className="space-y-2">
+                    {chartData.userGrowth.length > 0 ? chartData.userGrowth.map((data) => {
+                      const total = data.students + data.business;
+                      const maxTotal = Math.max(...chartData.userGrowth.map(d => d.students + d.business), 1);
+                      return (
+                        <div key={data.month}>
+                          <div className="mb-1 flex items-center justify-between text-xs text-slate-600">
+                            <span className="font-medium">{data.month}</span>
+                            <span className="font-semibold text-slate-900">{total} total</span>
+                          </div>
+                          <div className="group flex h-8 gap-1 overflow-hidden rounded-lg">
+                            <div
+                              className="relative bg-blue-500 transition-all duration-300 hover:bg-blue-600"
+                              style={{ width: `${(data.students / maxTotal) * 100}%` }}
+                            >
+                              <div className="absolute inset-0 flex items-center justify-center opacity-0 transition-opacity group-hover:opacity-100">
+                                <span className="text-xs font-semibold text-white">{data.students}</span>
+                              </div>
+                            </div>
+                            <div
+                              className="relative bg-green-500 transition-all duration-300 hover:bg-green-600"
+                              style={{ width: `${(data.business / maxTotal) * 100}%` }}
+                            >
+                              <div className="absolute inset-0 flex items-center justify-center opacity-0 transition-opacity group-hover:opacity-100">
+                                <span className="text-xs font-semibold text-white">{data.business}</span>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    }) : (
+                      <div className="flex h-32 items-center justify-center text-sm text-slate-500">
+                        No data available
+                      </div>
+                    )}
+                    <div className="mt-4 flex flex-wrap gap-3 text-xs">
+                      <div className="flex items-center gap-2">
+                        <div className="h-3 w-3 rounded bg-blue-500"></div>
+                        <span className="text-slate-600">Students</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <div className="h-3 w-3 rounded bg-green-500"></div>
+                        <span className="text-slate-600">Business</span>
+                      {(() => {
+                        const total = chartData.taskDistribution.pending + chartData.taskDistribution.completed;
+                        const circumference = 2 * Math.PI * 40;
+                        const pendingPercent = total > 0 ? (chartData.taskDistribution.pending / total) : 0;
+                        const completedPercent = total > 0 ? (chartData.taskDistribution.completed / total) : 0;
+                        const pendingDash = circumference * pendingPercent;
+                        const completedDash = circumference * completedPercent;
+                        
+                        return (
+                          <>
+                            <svg className="h-full w-full -rotate-90 transform" viewBox="0 0 100 100">
+                              <circle
+                                cx="50"
+                                cy="50"
+                                r="40"
+                                fill="none"
+                                stroke="#e2e8f0"
+                                strokeWidth="20"
+                              />
+                              <circle
+                                cx="50"
+                                cy="50"
+                                r="40"
+                                fill="none"
+                                stroke="#3b82f6"
+                                strokeWidth="20"
+                                strokeDasharray={`${pendingDash} ${circumference}`}
+                                strokeLinecap="round"
+                                className="transition-all duration-500 hover:stroke-[22]"
+                              />
+                              <circle
+                                cx="50"
+                                cy="50"
+                                r="40"
+                                fill="none"
+                                stroke="#10b981"
+                                strokeWidth="20"
+                                strokeDasharray={`${completedDash} ${circumference}`}
+                                strokeDashoffset={-pendingDash}
+                                strokeLinecap="round"
+                                className="transition-all duration-500 hover:stroke-[22]"
+                              />
+                            </svg>
+                            <div className="absolute inset-0 flex flex-col items-center justify-center">
+                              <span className="text-2xl font-bold text-slate-900">{total}</span>
+                              <span className="text-xs text-slate-600">Total</span>
+                            </div>
+                          </>
+                        );
+                      })()}
+                    </div>
+                    <div className="space-y-2 text-sm">
+                      <div className="flex items-center justify-between gap-4">
+                        <div className="flex items-center gap-2">
+                          <div className="h-3 w-3 rounded-full bg-blue-500"></div>
+                          <span className="text-slate-700">Pending</span>
+                        </div>
+                        <span className="font-semibold text-slate-900">
+                          {chartData.taskDistribution.pending} ({Math.round((chartData.taskDistribution.pending / Math.max(chartData.taskDistribution.pending + chartData.taskDistribution.completed, 1)) * 100)}%)
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between gap-4">
+                        <div className="flex items-center gap-2">
+                          <div className="h-3 w-3 rounded-full bg-green-500"></div>
+                          <span className="text-slate-700">Completed</span>
+                        </div>
+                        <span className="font-semibold text-slate-900">
+                          {chartData.taskDistribution.completed} ({Math.round((chartData.taskDistribution.completed / Math.max(chartData.taskDistribution.pending + chartData.taskDistribution.completed, 1)) * 100)}%)
+                        v>
+                          <span className="text-slate-700">Pending</span>
+                        </div>
+                        <span className="font-semibold text-slate-900">896 (70%)</span>
+                      </div>
+                      <div className="flex items-center justify-between gap-4">
+                        <div className="flex items-center gap-2">
+                          <div className="h-3 w-3 rounded-full bg-green-500"></div>
+                          <span className="text-slate-700">Completed</span>
+                        </div>
+                        <span className="font-semibold text-slate-900">388 (30%)</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {activeSection === "students" && (
+            <div className="space-y-6">
+              {/* Search and Filter Bar */}
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex flex-1 gap-3">
+                  <div className="relative flex-1 max-w-md">
+                    <input
+                      type="text"
+                      placeholder="Search students by name or email..."
+                      className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2 pl-10 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                    />
+                    <span className="absolute left-3 top-2.5 text-slate-400">🔍</span>
+                  </div>
+                  <button className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">
+                    Filter
+                  </button>
+                </div>
+                <button className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700">
+                  + Add Student
+                </button>
+              </div>
+
+              {/* Summary Stats */}
+              <div className="grid gap-4 sm:grid-cols-3">
+                {[
+                  { label: "Active Students", value: loading ? "..." : (students?.filter(s => s.status === "Active").length || 0).toString(), color: "green" },
+                  { label: "Inactive", value: loading ? "..." : (students?.filter(s => s.status !== "Active").length || 0).toString(), color: "gray" },
+                  { label: "Total Tasks", value: loading ? "..." : (students?.reduce((sum, s) => sum + s.taskCount, 0) || 0).toString(), color: "blue" }
+                ].map((stat) => (
+                  <div key={stat.label} className="rounded-xl bg-white p-4 shadow-sm ring-1 ring-slate-200">
+                    <p className="text-sm text-slate-600">{stat.label}</p>
+                    <p className="mt-2 text-2xl font-bold text-slate-900">{stat.value}</p>
+                  </div>
+                ))}
+              </div>
+
+              <div className="rounded-xl bg-white shadow-sm ring-1 ring-slate-200">
+                <div className="border-b border-slate-200 px-6 py-4">
+                  <div className="flex items-center justify-between">
+                    <h4 className="font-semibold text-slate-900">Student List</h4>
+                    <button className="text-sm text-blue-600 hover:text-blue-700">Export CSV</button>
+                  </div>
+                </div>
+                {loading ? (
+                  <div className="flex items-center justify-center py-12">
+                    <div className="text-center">
+                      <div className="mx-auto h-8 w-8 animate-spin rounded-full border-4 border-blue-600 border-t-transparent"></div>
+                      <p className="mt-2 text-sm text-slate-600">Loading students...</p>
+                    </div>
+                  </div>
+                ) : (students?.length || 0) === 0 ? (
+                  <div className="flex items-center justify-center py-12">
+                    <div className="text-center">
+                      <p className="text-slate-600">No students found</p>
+                      <p className="mt-1 text-sm text-slate-500">Add your first student to get started</p>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full divide-y divide-slate-200">
+                      <thead className="bg-slate-50">
+                        <tr>
+                          {["Name", "Email", "Tasks", "Status", "Joined", "Actions"].map((h) => (
+                            <th key={h} className="px-3 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-600 lg:px-6">
+                              {h}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 bg-white">
+                        {students.map((student) => (
+                          <tr key={student._id} className="hover:bg-slate-50">
+                            <td className="whitespace-nowrap px-3 py-4 text-sm font-medium text-slate-900 lg:px-6">
+                              {student.name}
+                            </td>
+                            <td className="whitespace-nowrap px-3 py-4 text-sm text-slate-600 lg:px-6">
+                              <span className="hidden sm:inline">{student.email}</span>
+                              <span className="sm:hidden">{student.email.split('@')[0]}</span>
+                            </td>
+                            <td className="whitespace-nowrap px-3 py-4 text-sm text-slate-600 lg:px-6">
+                              {student.taskCount}
+                            </td>
+                            <td className="whitespace-nowrap px-3 py-4 lg:px-6">
+                              <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold lg:px-2.5 ${
+                                student.status === "Active"
+                                  ? "bg-green-100 text-green-800"
+                                  : "bg-gray-100 text-gray-800"
+                              }`}>
+                                {student.status}
+                              </span>
+                            </td>
+                            <td className="whitespace-nowrap px-3 py-4 text-sm text-slate-600 lg:px-6">
+                              <span className="hidden lg:inline">{new Date(student.createdAt).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}</span>
+                              <span className="lg:hidden">{new Date(student.createdAt).toLocaleDateString('en-US', { month: 'short' })}</span>
+                            </td>
+                            <td className="whitespace-nowrap px-3 py-4 lg:px-6">
+                              <div className="flex items-center gap-1 lg:gap-2">
+                                <button
+                                  onClick={() => handleEditUser(student)}
+                                  className="group relative rounded-lg p-2 text-slate-600 transition hover:bg-slate-50 hover:text-slate-700"
+                                  title="Edit"
+                                >
+                                  <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                                  </svg>
+                                  <span className="pointer-events-none absolute -top-8 left-1/2 -translate-x-1/2 whitespace-nowrap rounded bg-slate-900 px-2 py-1 text-xs text-white opacity-0 transition group-hover:opacity-100">
+                                    Edit
+                                  </span>
+                                </button>
+                                <button
+                                  onClick={() => handleResetPassword(student._id)}
+                                  className="group relative rounded-lg p-2 text-purple-600 transition hover:bg-purple-50 hover:text-purple-700"
+                                  title="Reset Password"
+                                >
+                                  <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                                  </svg>
+                                  <span className="pointer-events-none absolute -top-8 left-1/2 -translate-x-1/2 whitespace-nowrap rounded bg-slate-900 px-2 py-1 text-xs text-white opacity-0 transition group-hover:opacity-100">
+                                    Reset Password
+                                  </span>
+                                </button>
+                                <button
+                                  onClick={() => handleDeleteUser(student._id, student.name)}
+                                  className="group relative rounded-lg p-2 text-red-600 transition hover:bg-red-50 hover:text-red-700"
+                                  title="Delete"
+                                >
+                                  <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                  </svg>
+                                  <span className="pointer-events-none absolute -top-8 left-1/2 -translate-x-1/2 whitespace-nowrap rounded bg-slate-900 px-2 py-1 text-xs text-white opacity-0 transition group-hover:opacity-100">
+                                    Delete
+                                  </span>
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {activeSection === "business" && (
+            <div className="space-y-6">
+              {/* Search and Filter Bar */}
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex flex-1 gap-3">
+                  <div className="relative flex-1 max-w-md">
+                    <input
+                      type="text"
+                      placeholder="Search business accounts..."
+                      className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2 pl-10 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                    />
+                    <span className="absolute left-3 top-2.5 text-slate-400">🔍</span>
+                  </div>
+                  <button className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">
+                    Filter
+                  </button>
+                </div>
+                <button className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700">
+                  + Add Business
+                </button>
+              </div>
+
+              {/* Summary Stats */}
+              <div className="grid gap-4 sm:grid-cols-3">
+                {[
+                  { label: "Active Businesses", value: loading ? "..." : (businessUsers?.filter(b => b.status === "Active").length || 0).toString(), color: "green" },
+                  { label: "Total Expenses", value: loading ? "..." : `$${(businessUsers?.reduce((sum, b) => sum + b.expenseTotal, 0) || 0).toLocaleString()}`, color: "blue" },
+                  { label: "Total Tasks", value: loading ? "..." : (businessUsers?.reduce((sum, b) => sum + b.taskCount, 0) || 0).toString(), color: "purple" }
+                ].map((stat) => (
+                  <div key={stat.label} className="rounded-xl bg-white p-4 shadow-sm ring-1 ring-slate-200">
+                    <p className="text-sm text-slate-600">{stat.label}</p>
+                    <p className="mt-2 text-2xl font-bold text-slate-900">{stat.value}</p>
+                  </div>
+                ))}
+              </div>
+
+              <div className="rounded-xl bg-white shadow-sm ring-1 ring-slate-200">
+                <div className="border-b border-slate-200 px-6 py-4">
+                  <div className="flex items-center justify-between">
+                    <h4 className="font-semibold text-slate-900">Business Accounts</h4>
+                    <button className="text-sm text-blue-600 hover:text-blue-700">Export CSV</button>
+                  </div>
+                </div>
+                {loading ? (
+                  <div className="flex items-center justify-center py-12">
+                    <div className="text-center">
+                      <div className="mx-auto h-8 w-8 animate-spin rounded-full border-4 border-blue-600 border-t-transparent"></div>
+                      <p className="mt-2 text-sm text-slate-600">Loading business users...</p>
+                    </div>
+                  </div>
+                ) : (businessUsers?.length || 0) === 0 ? (
+                  <div className="flex items-center justify-center py-12">
+                    <div className="text-center">
+                      <p className="text-slate-600">No business users found</p>
+                      <p className="mt-1 text-sm text-slate-500">Add your first business user to get started</p>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full divide-y divide-slate-200">
+                      <thead className="bg-slate-50">
+                        <tr>
+                          {["Business Name", "Username", "Email", "Expenses", "Status", "Actions"].map((h) => (
+                            <th key={h} className="px-3 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-600 lg:px-6">
+                              {h}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 bg-white">
+                        {businessUsers.map((biz) => (
+                          <tr key={biz._id} className="hover:bg-slate-50">
+                            <td className="whitespace-nowrap px-3 py-4 text-sm font-medium text-slate-900 lg:px-6">
+                              {biz.name}
+                            </td>
+                            <td className="whitespace-nowrap px-3 py-4 text-sm text-slate-600 lg:px-6">
+                              {biz.username}
+                            </td>
+                            <td className="whitespace-nowrap px-3 py-4 text-sm text-slate-600 lg:px-6">
+                              <span className="hidden sm:inline">{biz.email}</span>
+                              <span className="sm:hidden">{biz.email.split('@')[0]}</span>
+                            </td>
+                            <td className="whitespace-nowrap px-3 py-4 text-sm font-semibold text-slate-900 lg:px-6">
+                              ${biz.expenseTotal.toLocaleString()}
+                            </td>
+                            <td className="whitespace-nowrap px-3 py-4 lg:px-6">
+                              <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold lg:px-2.5 ${
+                                biz.status === "Active"
+                                  ? "bg-green-100 text-green-800"
+                                  : "bg-gray-100 text-gray-800"
+                              }`}>
+                                {biz.status}
+                              </span>
+                            </td>
+                            <td className="whitespace-nowrap px-3 py-4 lg:px-6">
+                              <div className="flex items-center gap-1 lg:gap-2">
+                                <button
+                                  onClick={() => handleEditUser(biz)}
+                                  className="group relative rounded-lg p-2 text-slate-600 transition hover:bg-slate-50 hover:text-slate-700"
+                                  title="Edit"
+                                >
+                                  <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                                  </svg>
+                                  <span className="pointer-events-none absolute -top-8 left-1/2 -translate-x-1/2 whitespace-nowrap rounded bg-slate-900 px-2 py-1 text-xs text-white opacity-0 transition group-hover:opacity-100">
+                                    Edit
+                                  </span>
+                                </button>
+                                <button
+                                  onClick={() => handleResetPassword(biz._id)}
+                                  className="group relative rounded-lg p-2 text-purple-600 transition hover:bg-purple-50 hover:text-purple-700"
+                                  title="Reset Password"
+                                >
+                                  <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                                  </svg>
+                                  <span className="pointer-events-none absolute -top-8 left-1/2 -translate-x-1/2 whitespace-nowrap rounded bg-slate-900 px-2 py-1 text-xs text-white opacity-0 transition group-hover:opacity-100">
+                                    Reset Password
+                                  </span>
+                                </button>
+                                <button
+                                  onClick={() => handleDeleteUser(biz._id, biz.name)}
+                                  className="group relative rounded-lg p-2 text-red-600 transition hover:bg-red-50 hover:text-red-700"
+                                  title="Delete"
+                                >
+                                  <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                  </svg>
+                                  <span className="pointer-events-none absolute -top-8 left-1/2 -translate-x-1/2 whitespace-nowrap rounded bg-slate-900 px-2 py-1 text-xs text-white opacity-0 transition group-hover:opacity-100">
+                                    Delete
+                                  </span>
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {activeSection === "announcements" && (
+            <div className="space-y-6">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <h3 className="text-lg font-semibold text-slate-900">System Announcements</h3>
+                <button className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700">
+                  + New Announcement
+                </button>
+              </div>
+
+              <div className="space-y-4">
+                {[
+                  { title: "System Maintenance", message: "Scheduled maintenance on Sunday 2 AM", date: "Jan 25, 2026" },
+                  { title: "New Features", message: "Dashboard updates rolling out next week", date: "Jan 23, 2026" }
+                ].map((announcement, i) => (
+                  <div key={i} className="rounded-xl bg-white p-4 shadow-sm ring-1 ring-slate-200 lg:p-5">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                      <div className="flex-1">
+                        <h4 className="font-semibold text-slate-900">{announcement.title}</h4>
+                        <p className="mt-1 text-sm text-slate-600">{announcement.message}</p>
+                        <p className="mt-2 text-xs text-slate-500">{announcement.date}</p>
+                      </div>
+                      <div className="flex gap-2">
+                        <button className="text-sm text-blue-600 hover:text-blue-800">Edit</button>
+                        <button className="text-sm text-red-600 hover:text-red-800">Delete</button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {activeSection === "tasks" && (
+            <div className="space-y-6">
+              <h3 className="text-lg font-semibold text-slate-900">Task Overview</h3>
+              <div className="grid gap-4 sm:grid-cols-3">
+                {[
+                  { label: "Pending", count: 45, color: "yellow" },
+                  { label: "In Progress", count: 28, color: "blue" },
+                  { label: "Completed", count: 156, color: "green" }
+                ].map((stat) => (
+                  <div key={stat.label} className="rounded-xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
+                    <p className="text-sm text-slate-600">{stat.label}</p>
+                    <p className="mt-2 text-3xl font-bold text-slate-900">{stat.count}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {activeSection === "timetable" && (
+            <div className="space-y-6">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <h3 className="text-lg font-semibold text-slate-900">Student Timetables</h3>
+                  <p className="text-sm text-slate-600">View and manage student schedules</p>
+                </div>
+                <div className="flex gap-2">
+                  <button className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">
+                    Filter
+                  </button>
+                  <button className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-700">
+                    + Add Entry
+                  </button>
+                </div>
+              </div>
+
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                {[
+                  { day: "Monday", entries: 8, students: 45 },
+                  { day: "Tuesday", entries: 12, students: 62 },
+                  { day: "Wednesday", entries: 10, students: 53 }
+                ].map((day) => (
+                  <div key={day.day} className="rounded-xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
+                    <h4 className="font-semibold text-slate-900">{day.day}</h4>
+                    <div className="mt-3 space-y-2 text-sm">
+                      <div className="flex justify-between">
+                        <span className="text-slate-600">Entries</span>
+                        <span className="font-semibold text-slate-900">{day.entries}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-slate-600">Students</span>
+                        <span className="font-semibold text-slate-900">{day.students}</span>
+                      </div>
+                    </div>
+                    <button className="mt-4 w-full rounded-lg border border-blue-200 bg-blue-50 py-2 text-sm font-medium text-blue-700 hover:bg-blue-100">
+                      View Schedule
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {activeSection === "reports" && (
+            <div className="space-y-6">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <h3 className="text-lg font-semibold text-slate-900">Audit Reports</h3>
+                  <p className="text-sm text-slate-600">Financial and activity reports for auditors</p>
+                </div>
+                <div className="flex gap-2">
+                  <button className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">
+                    📅 Date Range
+                  </button>
+                  <button className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-700">
+                    Export PDF
+                  </button>
+                </div>
+              </div>
+
+              {/* Financial Summary */}
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                {[
+                  { label: "Total Revenue", value: "$124,580", change: "+8.2%", positive: true },
+                  { label: "Total Expenses", value: "$45,280", change: "+3.1%", positive: false },
+                  { label: "Net Profit", value: "$79,300", change: "+12.4%", positive: true },
+                  { label: "Active Subscriptions", value: "998", change: "+15", positive: true }
+                ].map((stat) => (
+                  <div key={stat.label} className="rounded-xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
+                    <p className="text-sm font-medium text-slate-600">{stat.label}</p>
+                    <div className="mt-2 flex items-baseline gap-2">
+                      <span className="text-2xl font-bold text-slate-900">{stat.value}</span>
+                      <span className={`text-xs font-semibold ${stat.positive ? 'text-green-600' : 'text-red-600'}`}>
+                        {stat.change}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Reports List */}
+              <div className="rounded-xl bg-white shadow-sm ring-1 ring-slate-200">
+                <div className="border-b border-slate-200 px-6 py-4">
+                  <h4 className="font-semibold text-slate-900">Generated Reports</h4>
+                </div>
+                <div className="divide-y divide-slate-100">
+                  {[
+                    { name: "Q4 2025 Financial Report", type: "Financial", date: "Jan 15, 2026", size: "2.4 MB" },
+                    { name: "User Activity Report - December", type: "Activity", date: "Jan 5, 2026", size: "1.8 MB" },
+                    { name: "Expense Breakdown 2025", type: "Financial", date: "Jan 1, 2026", size: "3.1 MB" },
+                    { name: "Task Completion Report", type: "Performance", date: "Dec 28, 2025", size: "892 KB" }
+                  ].map((report, i) => (
+                    <div key={i} className="flex flex-col gap-3 px-6 py-4 hover:bg-slate-50 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="flex-1">
+                        <h5 className="font-medium text-slate-900">{report.name}</h5>
+                        <div className="mt-1 flex flex-wrap gap-2 text-xs text-slate-600">
+                          <span className="rounded-full bg-blue-100 px-2 py-0.5 text-blue-700">{report.type}</span>
+                          <span>{report.date}</span>
+                          <span>·</span>
+                          <span>{report.size}</span>
+                        </div>
+                      </div>
+                      <div className="flex gap-2">
+                        <button className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50">
+                          👁️ View
+                        </button>
+                        <button className="rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700">
+                          ⬇️ Download
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Audit Trail */}
+              <div className="rounded-xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+                <h4 className="mb-4 font-semibold text-slate-900">Recent Audit Trail</h4>
+                <div className="space-y-3">
+                  {[
+                    { action: "Report generated", user: "Admin", details: "Q4 Financial Report", time: "2 hours ago" },
+                    { action: "User deleted", user: "Admin", details: "student@example.com", time: "5 hours ago" },
+                    { action: "Settings modified", user: "Admin", details: "Authentication settings", time: "1 day ago" }
+                  ].map((log, i) => (
+                    <div key={i} className="flex items-start gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
+                      <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-bold text-blue-700">
+                        {log.user[0]}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-slate-900">{log.action}</p>
+                        <p className="text-xs text-slate-600">{log.details}</p>
+                        <p className="mt-1 text-xs text-slate-500">{log.time}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {activeSection === "settings" && (
+            <div className="space-y-6">
+              <h3 className="text-lg font-semibold text-slate-900">System Settings</h3>
+              
+              {/* Development Tools */}
+              <div className="rounded-xl bg-amber-50 border border-amber-200 p-5">
+                <h4 className="font-semibold text-amber-900 flex items-center gap-2">
+                  <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                  </svg>
+                  Development Tools
+                </h4>
+                <p className="mt-2 text-sm text-amber-700">Testing and development utilities</p>
+                <button 
+                  onClick={handleSeedData}
+                  className="mt-3 rounded-lg bg-amber-600 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-700"
+                >
+                  Seed Sample Data
+                </button>
+              </div>
+
+              <div className="grid gap-4 sm:grid-cols-2">
+                {["Authentication", "Notifications", "Backups", "Permissions"].map((setting) => (
+                  <div key={setting} className="rounded-xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
+                    <h4 className="font-semibold text-slate-900">{setting}</h4>
+                    <p className="mt-2 text-sm text-slate-600">Configure {setting.toLowerCase()} settings</p>
+                    <button className="mt-3 text-sm font-medium text-blue-600 hover:text-blue-800">
+                      Manage →
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </main>
+      </div>
+    </div>
+  );
+}
