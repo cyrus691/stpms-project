@@ -7,7 +7,6 @@ import { getAnnouncementModel } from "@/lib/models/Announcement";
 import { getLoginEventModel } from "@/lib/models/LoginEvent";
 import { getAuditLogModel } from "@/lib/models/AuditLog";
 import { getSessionEventModel } from "@/lib/models/SessionEvent";
-import { getRestockLogModel } from "@/lib/models/RestockLog";
 
 const parseDate = (value: string | null, endOfDay = false) => {
   if (!value) return null;
@@ -51,14 +50,8 @@ export async function GET(request: Request) {
     const LoginEvent = getLoginEventModel(conn);
     const AuditLog = getAuditLogModel(conn);
     const SessionEvent = getSessionEventModel(conn);
-    const RestockLog = getRestockLogModel(conn);
     // Aggregate restock logs for accountability
-    const restockMatch: Record<string, any> = buildDateMatch("createdAt", start, end);
-    const restockLogs = await RestockLog.find(restockMatch)
-      .sort({ createdAt: -1 })
-      .limit(100)
-      .lean()
-      .exec();
+    // Removed restock logs aggregation
 
     const userMatch: Record<string, any> = {};
     if (role !== "all") userMatch.role = role;
@@ -288,7 +281,7 @@ export async function GET(request: Request) {
         avgDurationMinutes: avgSessionMinutes
       },
       auditLogs: auditLogsWithNames,
-      restocks: restockLogs
+      restocks: [] // Updated to reflect removal of restock logs
     });
   } catch (error) {
     console.error("Error generating report summary:", error);
