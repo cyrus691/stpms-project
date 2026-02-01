@@ -226,7 +226,6 @@ export default function HomePage() {
     <div className="min-h-screen">
       {/* Hero Section */}
       <section className="relative overflow-hidden bg-gradient-to-br from-blue-600 via-blue-700 to-indigo-800 px-6 py-24 text-white sm:py-32">
-        <div className="absolute inset-0 bg-[url('/grid.svg')] opacity-10"></div>
         <div className="relative mx-auto max-w-4xl text-center">
           <h1 className="mb-6 text-5xl font-bold leading-tight sm:text-6xl md:text-7xl">
             Smart Task Management System
