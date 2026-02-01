@@ -1,4 +1,5 @@
-"use client";
+
+
 
 // Print Sale Receipt Utility (top-level for global scope)
 function printSaleReceipt(sale: {
