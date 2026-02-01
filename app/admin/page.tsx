@@ -260,14 +260,16 @@ export default function AdminPage() {
 
   // Initialize arrays to prevent undefined errors
 
+  // Load critical data immediately for fast dashboard render
   useEffect(() => {
-    // Defer data loading to make page interactive immediately
-    const timer = setTimeout(() => {
-      fetchUsers();
-      fetchTasks();
-    }, 100);
-    return () => clearTimeout(timer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    fetchUsers(); // Load users and system health first
+    fetchActivities({ silent: true }); // Load activities for dashboard
+  }, []);
+
+  // Load secondary data after initial render
+  useEffect(() => {
+    fetchTasks({ silent: true });
+    fetchAnnouncements();
   }, []);
 
   useEffect(() => {
@@ -325,12 +327,24 @@ export default function AdminPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeSection]);
 
+  // Simple in-memory cache for session
+  const apiCache: Record<string, any> = {};
+
   const fetchUsers = async (options?: { silent?: boolean }) => {
     try {
       if (!options?.silent) {
         setLoading(true);
       }
-      
+      // Use cache if available
+      if (apiCache.users && apiCache.business && apiCache.health && apiCache.adminSettings) {
+        setStudents(apiCache.users);
+        setBusinessUsers(apiCache.business);
+        setSystemHealth(apiCache.health);
+        setAdminSettings(apiCache.adminSettings);
+        calculateGrowthAndCharts(apiCache.users, apiCache.business);
+        if (!options?.silent) setLoading(false);
+        return;
+      }
       // Fetch students, business users, and settings in parallel
       const [studentsRes, businessRes, healthRes, adminSettingsRes] = await Promise.all([
         fetch("/api/users?role=student"),
@@ -338,14 +352,17 @@ export default function AdminPage() {
         fetch("/api/system-health"),
         fetch("/api/admin/settings"),
       ]);
-      
       const [studentsData, businessData, healthData, adminSettingsData] = await Promise.all([
         studentsRes.json(),
         businessRes.json(),
         healthRes.ok ? healthRes.json() : Promise.resolve(null),
         adminSettingsRes.ok ? adminSettingsRes.json() : Promise.resolve(null)
       ]);
-      
+      // Cache responses
+      apiCache.users = studentsData;
+      apiCache.business = businessData;
+      apiCache.health = healthData;
+      apiCache.adminSettings = adminSettingsData;
       setStudents(studentsData);
       setBusinessUsers(businessData);
       if (adminSettingsData) {
@@ -359,7 +376,6 @@ export default function AdminPage() {
       if (healthData) {
         setSystemHealth(healthData);
       }
-      
       // Calculate growth percentages and chart data
       calculateGrowthAndCharts(studentsData, businessData);
     } catch (error) {
