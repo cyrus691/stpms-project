@@ -1,5 +1,4 @@
-
-
+"use client";
 
 // Print Sale Receipt Utility (top-level for global scope)
 function printSaleReceipt(sale: {
@@ -171,6 +170,7 @@ function PaymentForm({ invoice, currency, currencyRates, onPaymentSuccess }: Pay
 
 function BusinessRegistrationForm() {
   const { data: session } = useSession();
+
   const [form, setForm] = useState({
     businessName: "",
     address: "",
@@ -205,7 +205,7 @@ function BusinessRegistrationForm() {
       }
     };
     fetchBusinessInfo();
-  }, [typeof session?.user === "object" && session?.user && "id" in session.user ? (session.user as any).id : undefined]);
+  }, [session?.user]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
@@ -405,11 +405,11 @@ export default function BusinessPage() {
   const { data: session } = useSession();
   const [activeSection, setActiveSection] = useState("dashboard");
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const currencyRates = {
+  const currencyRates = useMemo(() => ({
     USD: 1,
     KES: 160,
     UGX: 3800
-  } as const;
+  }), []);
   const [currency, setCurrency] = useState<keyof typeof currencyRates>("USD");
   const [expenses, setExpenses] = useState<Expense[]>([]);
   // Expense filters
@@ -580,7 +580,7 @@ export default function BusinessPage() {
     const arrow = pct >= 0 ? "↑" : "↓";
     const color = pct >= 0 ? "text-green-600" : "text-red-600";
     return <span className={`font-semibold ${color}`}>{arrow} {Math.abs(pct).toFixed(1)}% from last period</span>;
-  }, [salesTrendData, sales, currency, salesTrendPeriod]);
+  }, [salesTrendData, sales, currency, salesTrendPeriod, currencyRates]);
 
   useEffect(() => {
     const storedCurrency = typeof window !== "undefined" ? window.localStorage.getItem("business_currency") : null;
@@ -1117,44 +1117,7 @@ export default function BusinessPage() {
     balance: sale.balance // include balance if available from backend
   }));
   // Advanced income filters
-  const filteredCashSales = useMemo(() => {
-    return cashSales.filter((sale) => {
-      // Search filter
-      const search = incomeSearch.trim().toLowerCase();
-      const matchesSearch =
-        !search ||
-        (sale.productName && sale.productName.toLowerCase().includes(search)) ||
-        (sale.customerName && sale.customerName.toLowerCase().includes(search));
-      // Type filter
-      const matchesType = incomeTypeFilter === "all" || incomeTypeFilter === "cash";
-      // Date range filter
-      const saleDate = new Date(sale.saleDate);
-      const matchesStart = !incomeDateStart || saleDate >= new Date(incomeDateStart);
-      const matchesEnd = !incomeDateEnd || saleDate <= new Date(incomeDateEnd);
-      return matchesSearch && matchesType && matchesStart && matchesEnd;
-    });
-  }, [cashSales, incomeSearch, incomeTypeFilter, incomeDateStart, incomeDateEnd, currency]);
-
-  const filteredCreditPayments = useMemo(() => {
-    return creditInvoices.filter((inv) => {
-      // Include all invoices with any payment (partial or full, including fully paid)
-      const paidAmount = typeof inv.balance === "number" ? inv.amount - inv.balance : 0;
-      if (paidAmount <= 0) return false;
-      // Search filter
-      const search = incomeSearch.trim().toLowerCase();
-      const matchesSearch =
-        !search ||
-        inv.invoiceNumber.toLowerCase().includes(search) ||
-        inv.clientName.toLowerCase().includes(search);
-      // Type filter
-      const matchesType = incomeTypeFilter === "all" || incomeTypeFilter === "credit";
-      // Date range filter
-      const createdAt = new Date(inv.createdAt);
-      const matchesStart = !incomeDateStart || createdAt >= new Date(incomeDateStart);
-      const matchesEnd = !incomeDateEnd || createdAt <= new Date(incomeDateEnd);
-      return matchesSearch && matchesType && matchesStart && matchesEnd;
-    });
-  }, [creditInvoices, incomeSearch, incomeTypeFilter, incomeDateStart, incomeDateEnd]);
+  // Removed unused variables: filteredCashSales, filteredCreditPayments
   const pendingCreditSales = creditSales.filter((sale) => sale.status === "pending");
   const totalQuantity = sales.reduce((sum, sale) => sum + sale.quantity, 0);
   const totalIncome = creditInvoices.filter(inv => inv.status === "paid").reduce((sum, inv) => sum + inv.amount, 0);

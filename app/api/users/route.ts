@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { getConnection } from "@/lib/prisma";
 import { getUserModel } from "@/lib/models/User";
 import { getTaskModel } from "@/lib/models/Task";
-import { getExpenseModel, IExpense } from "@/lib/models/Expense";
+import { getExpenseModel } from "@/lib/models/Expense";
 import type { Role } from "@/lib/auth";
 import { logAuditEvent } from "@/lib/audit";
 

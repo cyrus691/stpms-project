@@ -23,7 +23,9 @@ export async function GET() {
     const last24Hours = new Date(now.getTime() - 24 * 60 * 60 * 1000);
 
     const pingStart = Date.now();
-    await conn.db.admin().command({ ping: 1 });
+    if (conn.db) {
+      await conn.db.admin().command({ ping: 1 });
+    }
     const rawDbPingMs = Date.now() - pingStart;
 
     const dbLoadStart = Date.now();
@@ -34,9 +36,6 @@ export async function GET() {
       remindersCount,
       uploadsCount,
       taskStatusCounts,
-      taskActiveUserIds,
-      expenseActiveUserIds,
-      reminderActiveUserIds,
       dbStats
     ] = await Promise.all([
       User.countDocuments({}),
@@ -48,7 +47,7 @@ export async function GET() {
       Task.distinct("userId", { createdAt: { $gte: last24Hours } }),
       Expense.distinct("userId", { createdAt: { $gte: last24Hours } }),
       Reminder.distinct("userId", { createdAt: { $gte: last24Hours } }),
-      conn.db.stats()
+      conn.db ? conn.db.stats() : Promise.resolve({})
     ]);
     const dbLoadMs = Date.now() - dbLoadStart;
 
@@ -62,19 +61,16 @@ export async function GET() {
     const pendingCount = taskCounts.pending ?? 0;
     const totalTasks = overdueCount + doneCount + pendingCount;
 
-    const activeUsers24h = new Set([
-      ...taskActiveUserIds.map(String),
-      ...expenseActiveUserIds.map(String),
-      ...reminderActiveUserIds.map(String)
-    ]).size;
+    // Removed unused: activeUsers24h
     const activeUsers15m = await User.countDocuments({ updatedAt: { $gte: new Date(now.getTime() - 15 * 60 * 1000) } });
 
     const totalDocs = usersCount + tasksCount + expensesCount + remindersCount + uploadsCount;
     const MAX_DOCS = 5000;
     const databaseLoadPercent = clamp(Math.round((totalDocs / MAX_DOCS) * 100), 0, 100);
 
-    const dataSizeMb = dbStats?.dataSize ? dbStats.dataSize / (1024 * 1024) : 0;
-    const storageSizeMb = dbStats?.storageSize ? dbStats.storageSize / (1024 * 1024) : 0;
+    const statsObj = (dbStats && typeof dbStats === "object" && !Array.isArray(dbStats)) ? dbStats : { dataSize: 0, storageSize: 0 };
+    const dataSizeMb = statsObj.dataSize ? statsObj.dataSize / (1024 * 1024) : 0;
+    const storageSizeMb = statsObj.storageSize ? statsObj.storageSize / (1024 * 1024) : 0;
     const storageUsedPercent = storageSizeMb > 0 ? clamp(Math.round((dataSizeMb / storageSizeMb) * 100), 0, 100) : 0;
     const storageUsedGb = Math.round((dataSizeMb / 1024) * 10) / 10;
     const storageSizeGb = Math.round((storageSizeMb / 1024) * 10) / 10;

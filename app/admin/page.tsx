@@ -145,9 +145,9 @@ export default function AdminPage() {
   const [students, setStudents] = useState<User[]>([]);
   const [businessUsers, setBusinessUsers] = useState<User[]>([]);
   const [activities, setActivities] = useState<Activity[]>([]);
-  const [loginEvents, setLoginEvents] = useState<LoginEvent[]>([]);
+  const [loginEvents] = useState<LoginEvent[]>([]);
   const [activitiesLoading, setActivitiesLoading] = useState(false);
-  const [loginEventsLoading, setLoginEventsLoading] = useState(false);
+  // Removed unused: loginEventsLoading, setLoginEventsLoading
   const [reportSummary, setReportSummary] = useState<ReportSummary | null>(null);
   const [reportLoading, setReportLoading] = useState(false);
   const [reportFilters, setReportFilters] = useState({
@@ -196,8 +196,7 @@ export default function AdminPage() {
     password: ""
   });
   const [editErrors, setEditErrors] = useState<{ [key: string]: string }>({});
-  const [showResetModal, setShowResetModal] = useState(false);
-  const [resetUserId, setResetUserId] = useState<string | null>(null);
+  // Removed unused: showResetModal, setShowResetModal, resetUserId, setResetUserId
   const [showAddUserModal, setShowAddUserModal] = useState(false);
   const [showAnnouncementModal, setShowAnnouncementModal] = useState(false);
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
@@ -310,7 +309,6 @@ export default function AdminPage() {
   useEffect(() => {
     if (activeSection !== "overview") return;
     fetchActivities({ silent: true });
-    fetchLoginEvents({ silent: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeSection]);
 
@@ -391,23 +389,7 @@ export default function AdminPage() {
     }
   };
 
-  const fetchLoginEvents = async (options?: { silent?: boolean }) => {
-    try {
-      if (!options?.silent) {
-        setLoginEventsLoading(true);
-      }
-      const response = await fetch("/api/login-events");
-      const data = response.ok ? await response.json() : [];
-      setLoginEvents(Array.isArray(data) ? data : []);
-    } catch (error) {
-      console.error("Error fetching login events:", error);
-      setLoginEvents([]);
-    } finally {
-      if (!options?.silent) {
-        setLoginEventsLoading(false);
-      }
-    }
-  };
+  // Removed unused: fetchLoginEvents
 
   const fetchAnnouncements = async (options?: { silent?: boolean }) => {
     try {
@@ -496,29 +478,7 @@ export default function AdminPage() {
     return `${Math.min(100, Math.round((value / max) * 100))}%`;
   };
 
-  const getLoginTrend = () => {
-    const days = 7;
-    const today = new Date();
-    const items = Array.from({ length: days }, (_, idx) => {
-      const date = new Date();
-      date.setDate(today.getDate() - (days - 1 - idx));
-      date.setHours(0, 0, 0, 0);
-      return {
-        key: date.toISOString().split("T")[0],
-        label: date.toLocaleDateString("en-US", { month: "short", day: "numeric" }),
-        count: 0
-      };
-    });
-
-    const itemMap = new Map(items.map((item) => [item.key, item]));
-    loginEvents.forEach((event) => {
-      const key = new Date(event.createdAt).toISOString().split("T")[0];
-      const match = itemMap.get(key);
-      if (match) match.count += 1;
-    });
-
-    return items;
-  };
+  // Removed unused: getLoginTrend
 
   const buildPieGradient = (values: Record<string, number>, colors: string[]) => {
     const entries = Object.entries(values || {});
@@ -649,21 +609,7 @@ export default function AdminPage() {
     });
   };
 
-  const handleSeedData = async () => {
-    if (!confirm("This will create sample users and data for testing. Continue?")) return;
-    
-    try {
-      const response = await fetch("/api/seed/users", { method: "POST" });
-      const data = await response.json();
-      alert(data.message);
-      if (response.ok) {
-        fetchUsers(); // Refresh the user list
-      }
-    } catch (error) {
-      alert("Error seeding data. Check console for details.");
-      console.error(error);
-    }
-  };
+
 
   const menuItems = [
     { id: "overview", label: "Overview", icon: <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg> },
@@ -1300,7 +1246,7 @@ export default function AdminPage() {
           : { ...reminder, notified: true }
       )
     );
-  }, [dueReminders.length]);
+  }, [dueReminders.length, remindersLoaded]);
 
   const handleAddReminder = () => {
     const trimmedTitle = reminderForm.title.trim();
@@ -1469,9 +1415,7 @@ export default function AdminPage() {
           : "Business";
 
   const reportUserRoleMax = getMaxValue(reportSummary?.users.byRole || {});
-  const reportUserOptions = [...students, ...businessUsers]
-    .filter((user) => user && user._id)
-    .sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+
 
   return (
     <div className="flex h-screen overflow-hidden bg-slate-50">
