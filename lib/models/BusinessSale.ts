@@ -48,7 +48,7 @@ const businessSaleSchema = new Schema<IBusinessSale>({
 
 businessSaleSchema.virtual("balance").get(function (this: IBusinessSale) {
   const paid = (this.payments || []).reduce((sum, p) => sum + p.amount, 0);
-    return Math.max(0, totalAmount - paid);
+  return Math.max(0, this.totalAmount - paid);
 });
 
 businessSaleSchema.set("toJSON", { virtuals: true });

@@ -1,9 +1,71 @@
-import * as React from "react";
 "use client";
+
+// Print Sale Receipt Utility (top-level for global scope)
+function printSaleReceipt(sale: {
+  saleDate: string;
+  customerName?: string;
+  productName: string;
+  quantity: number;
+  unitPrice: number;
+  totalAmount: number;
+}) {
+  const businessName = (typeof window !== 'undefined' && window.localStorage.getItem('business_name')) || 'Business';
+  const businessAddress = (typeof window !== 'undefined' && window.localStorage.getItem('business_address')) || '';
+  const businessPhone = (typeof window !== 'undefined' && window.localStorage.getItem('business_phone')) || '';
+  const businessEmail = (typeof window !== 'undefined' && window.localStorage.getItem('business_email')) || '';
+  const win = window.open('', 'PRINT', 'height=600,width=400');
+  if (win) {
+    win.document.write(`
+      <html>
+        <head>
+          <title>Receipt</title>
+          <style>
+            body { font-family: Arial, sans-serif; font-size: 13px; margin: 0; padding: 0; }
+            .receipt { max-width: 320px; margin: 0 auto; padding: 16px; border: 1px solid #eee; }
+            .header { text-align: center; margin-bottom: 12px; }
+            .details { margin-bottom: 12px; }
+            .footer { text-align: center; margin-top: 16px; font-size: 11px; color: #888; }
+          </style>
+        </head>
+        <body>
+          <div class="receipt">
+            <div class="header">
+              <h2 style="margin:0;">${businessName}</h2>
+              <div>${businessAddress}</div>
+              <div>${businessPhone}</div>
+              <div>${businessEmail}</div>
+            </div>
+            <div class="details">
+              <div>Date: ${new Date(sale.saleDate).toLocaleDateString()}</div>
+              <div>Customer: ${sale.customerName || 'Cash Sale'}</div>
+              <div>Product: ${sale.productName}</div>
+              <div>Quantity: ${sale.quantity}</div>
+              <div>Unit Price: ${sale.unitPrice}</div>
+              <div>Total: ${sale.totalAmount}</div>
+            </div>
+            <div class="footer">Thank you for your business!</div>
+          </div>
+        </body>
+      </html>
+    `);
+    win.document.close();
+    win.focus();
+    win.print();
+    win.close();
+  }
+}
+
+import React, { useState, useEffect, useMemo, useRef } from "react";
 
 import { signOut, useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
-import { useState, useEffect, useMemo, useRef } from "react";
+
+// Top-level formatCurrency utility for all usages
+function formatCurrency(amount: number, currency: string, currencyRates?: Record<string, number>) {
+  const rate = currencyRates?.[currency] ?? 1;
+  return new Intl.NumberFormat("en-US", { style: "currency", currency }).format(amount * rate);
+}
+
 
 // --- Invoice Actions Handlers ---
 interface Invoice {
@@ -34,7 +96,7 @@ interface PaymentFormProps {
   invoice: Invoice;
   currency: string;
   currencyRates: Record<string, number>;
-  onPaymentSuccess: (updatedInvoice: Invoice) => void;
+  onPaymentSuccess: () => void;
 }
 
 function PaymentForm({ invoice, currency, currencyRates, onPaymentSuccess }: PaymentFormProps) {
@@ -60,8 +122,8 @@ function PaymentForm({ invoice, currency, currencyRates, onPaymentSuccess }: Pay
     });
     if (res.ok) {
       if (onPaymentSuccess) {
-        const updated = await res.json();
-        onPaymentSuccess(updated);
+        await res.json();
+        onPaymentSuccess();
       }
       if (amountRef.current) amountRef.current.value = "";
       setSaving(false);
@@ -100,20 +162,8 @@ function PaymentForm({ invoice, currency, currencyRates, onPaymentSuccess }: Pay
   );
 }
 
-function handleInvoicePaymentSuccess(updatedInvoice: Invoice) {
-  window.location.reload(); // Replace with state update for a true SPA experience
-}
 
-interface Invoice {
-  _id: string;
-  invoiceNumber: string;
-  clientName: string;
-  amount: number;
-  status: "paid" | "pending" | "overdue";
-  dueDate: string;
-  createdAt: string;
-  balance?: number;
-}
+
 
 // Business Registration Form Component
 
@@ -458,7 +508,7 @@ export default function BusinessPage() {
       buckets[bucketIdx] += amount;
     });
     return { buckets, labels, start, end };
-  }, [sales, currency, salesTrendPeriod]);
+  }, [sales, salesTrendPeriod]);
 
   const maxY = useMemo(() => {
     const max = Math.max(...salesTrendData.buckets, 100);
@@ -500,7 +550,7 @@ export default function BusinessPage() {
     let prevSum = 0;
     if (salesTrendPeriod === "this_month" || salesTrendPeriod === "last_month") {
       // Previous month
-      const now = new Date();
+      // removed unused variable 'now'
       const prevStart = new Date(salesTrendData.start);
       prevStart.setMonth(prevStart.getMonth() - 1);
       const prevEnd = new Date(salesTrendData.start);
@@ -980,8 +1030,8 @@ export default function BusinessPage() {
       <tr>
         <td>${item.name}</td>
         <td>${item.sku ?? "-"}</td>
-        <td>${formatCurrency(Number(item.unitPrice ?? 0))}</td>
-        <td>${formatCurrency(Number(item.sellingPrice ?? item.unitPrice ?? 0))}</td>
+        <td>${formatCurrency(Number(item.unitPrice ?? 0), currency, currencyRates)}</td>
+        <td>${formatCurrency(Number(item.sellingPrice ?? item.unitPrice ?? 0), currency, currencyRates)}</td>
         <td>${item.quantityInStock}</td>
         <td>${new Date(item.createdAt).toLocaleDateString()}</td>
       </tr>
@@ -1082,12 +1132,12 @@ export default function BusinessPage() {
       const matchesEnd = !incomeDateEnd || saleDate <= new Date(incomeDateEnd);
       return matchesSearch && matchesType && matchesStart && matchesEnd;
     });
-  }, [cashSales, incomeSearch, incomeTypeFilter, incomeDateStart, incomeDateEnd, currencyRates]);
+  }, [cashSales, incomeSearch, incomeTypeFilter, incomeDateStart, incomeDateEnd, currency]);
 
   const filteredCreditPayments = useMemo(() => {
     return creditInvoices.filter((inv) => {
-      // Only show credit payments that have been paid (partial or full)
-      const paidAmount = typeof inv.balance === "number" && inv.balance < inv.amount ? inv.amount - inv.balance : 0;
+      // Include all invoices with any payment (partial or full, including fully paid)
+      const paidAmount = typeof inv.balance === "number" ? inv.amount - inv.balance : 0;
       if (paidAmount <= 0) return false;
       // Search filter
       const search = incomeSearch.trim().toLowerCase();
@@ -1109,24 +1159,6 @@ export default function BusinessPage() {
   const totalIncome = creditInvoices.filter(inv => inv.status === "paid").reduce((sum, inv) => sum + inv.amount, 0);
   const pendingInvoices = creditInvoices.filter(inv => inv.status === "pending");
   const overdueInvoices = creditInvoices.filter(inv => inv.status === "overdue");
-  const salesByProductId = sales.reduce((acc, sale) => {
-    if (sale.productId) {
-      acc.set(sale.productId, (acc.get(sale.productId) ?? 0) + sale.quantity);
-    }
-    return acc;
-  }, new Map<string, number>());
-  const salesByProductName = sales.reduce((acc, sale) => {
-    const key = sale.productName?.toLowerCase?.() ?? "";
-    if (key) {
-      acc.set(key, (acc.get(key) ?? 0) + sale.quantity);
-    }
-    return acc;
-  }, new Map<string, number>());
-  const formatCurrency = (amount: number) => {
-    const rate = currencyRates[currency] ?? 1;
-    return new Intl.NumberFormat("en-US", { style: "currency", currency }).format(amount * rate);
-  };
-
   const filteredInvoices = useMemo(() => {
     return creditInvoices.filter(inv => {
       const matchesSearch =
@@ -1307,7 +1339,10 @@ export default function BusinessPage() {
                       <p className="text-sm font-medium text-slate-600">Total Income Received</p>
                       <p className="mt-2 text-2xl font-bold text-green-600">
                         {formatCurrency(
-                          cashSales.reduce((sum, sale) => sum + sale.totalAmount, 0)
+                          cashSales.reduce((sum, sale) => sum + sale.totalAmount, 0) +
+                          creditInvoices.reduce((sum, inv) => sum + (inv.amount - (typeof inv.balance === "number" ? inv.balance : 0)), 0),
+                          currency,
+                          currencyRates
                         )}
                       </p>
                       <p className="mt-1 text-xs text-slate-500">Includes cash sales</p>
@@ -1324,7 +1359,7 @@ export default function BusinessPage() {
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="text-sm font-medium text-slate-600">Total Expenses</p>
-                      <p className="mt-2 text-2xl font-bold text-red-600">{formatCurrency(totalExpenses)}</p>
+                      <p className="mt-2 text-2xl font-bold text-red-600">{formatCurrency(totalExpenses, currency, currencyRates)}</p>
                       <p className="mt-1 text-xs text-slate-500">+8% from last month</p>
                     </div>
                     <div className="rounded-full bg-red-100 p-3">
@@ -1343,22 +1378,24 @@ export default function BusinessPage() {
                         {formatCurrency(
                           (
                             cashSales.reduce((sum, sale) => sum + sale.totalAmount, 0) +
-                            creditInvoices.reduce((sum, inv) => sum + (typeof inv.balance === "number" && inv.balance < inv.amount ? inv.amount - inv.balance : 0), 0)
-                          ) - totalExpenses
+                            creditInvoices.reduce((sum, inv) => sum + (inv.amount - (typeof inv.balance === "number" ? inv.balance : 0)), 0)
+                          ) - totalExpenses,
+                          currency,
+                          currencyRates
                         )}
                       </p>
                       <p className="mt-1 text-xs text-slate-500">
                         Profit margin: {
                           (cashSales.reduce((sum, sale) => sum + sale.totalAmount, 0) +
-                          creditInvoices.reduce((sum, inv) => sum + (typeof inv.balance === "number" && inv.balance < inv.amount ? inv.amount - inv.balance : 0), 0))
+                          creditInvoices.reduce((sum, inv) => sum + (inv.amount - (typeof inv.balance === "number" ? inv.balance : 0)), 0))
                           ? (((
                               (
                                 cashSales.reduce((sum, sale) => sum + sale.totalAmount, 0) +
-                                creditInvoices.reduce((sum, inv) => sum + (typeof inv.balance === "number" && inv.balance < inv.amount ? inv.amount - inv.balance : 0), 0)
+                                creditInvoices.reduce((sum, inv) => sum + (inv.amount - (typeof inv.balance === "number" ? inv.balance : 0)), 0)
                               ) - totalExpenses
                             ) /
                             (cashSales.reduce((sum, sale) => sum + sale.totalAmount, 0) +
-                              creditInvoices.reduce((sum, inv) => sum + (typeof inv.balance === "number" && inv.balance < inv.amount ? inv.amount - inv.balance : 0), 0))
+                              creditInvoices.reduce((sum, inv) => sum + (inv.amount - (typeof inv.balance === "number" ? inv.balance : 0)), 0))
                           ) * 100).toFixed(1)
                           : "0.0"
                         }%
@@ -1377,7 +1414,7 @@ export default function BusinessPage() {
                     <div>
                       <p className="text-sm font-medium text-slate-600">Pending Invoices</p>
                       <p className="mt-2 text-2xl font-bold text-amber-600">{pendingInvoices.length}</p>
-                      <p className="mt-1 text-xs text-slate-500">{formatCurrency(pendingInvoices.reduce((sum, inv) => sum + inv.amount, 0))} awaiting</p>
+                      <p className="mt-1 text-xs text-slate-500">{formatCurrency(pendingInvoices.reduce((sum, inv) => sum + inv.amount, 0), currency, currencyRates)} awaiting</p>
                     </div>
                     <div className="rounded-full bg-amber-100 p-3">
                       <svg className="h-6 w-6 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1410,7 +1447,7 @@ export default function BusinessPage() {
                           <p className="text-sm text-slate-600">{invoice.clientName}</p>
                         </div>
                         <div className="text-right">
-                          <p className="font-semibold text-slate-900">{formatCurrency(invoice.amount)}</p>
+                          <p className="font-semibold text-slate-900">{formatCurrency(invoice.amount, currency, currencyRates)}</p>
                           <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${
                             invoice.status === "paid" ? "bg-green-100 text-green-700" :
                             invoice.status === "pending" ? "bg-amber-100 text-amber-700" :
@@ -1451,7 +1488,7 @@ export default function BusinessPage() {
                             <p className="font-medium text-slate-900">{expense.label}</p>
                             <p className="text-sm text-slate-600">{new Date(expense.occurredOn).toLocaleDateString()}</p>
                           </div>
-                          <p className="font-semibold text-red-600">{formatCurrency(-expense.amount)}</p>
+                          <p className="font-semibold text-red-600">{formatCurrency(-expense.amount, currency, currencyRates)}</p>
                         </div>
                       ))}
                     </div>
@@ -1513,20 +1550,20 @@ export default function BusinessPage() {
                             <div className="mb-1 flex items-center justify-between text-sm">
                               <span className="font-medium text-slate-700">{m.label}</span>
                               <div className="flex gap-4 text-xs">
-                                <span className="text-green-600">Income: {formatCurrency(income)}</span>
-                                <span className="text-red-600">Expenses: {formatCurrency(expense)}</span>
+                                <span className="text-green-600">Income: {formatCurrency(income, currency, currencyRates)}</span>
+                                <span className="text-red-600">Expenses: {formatCurrency(expense, currency, currencyRates)}</span>
                               </div>
                             </div>
                             <div className="flex h-8 gap-1 overflow-hidden rounded-lg">
                               <div
                                 className="bg-green-500 transition-all hover:bg-green-600"
                                 style={{ width: `${(income / maxVal) * 100}%` }}
-                                title={`Income: ${formatCurrency(income)}`}
+                                title={`Income: ${formatCurrency(income, currency, currencyRates)}`}
                               ></div>
                               <div
                                 className="bg-red-500 transition-all hover:bg-red-600"
                                 style={{ width: `${(expense / maxVal) * 100}%` }}
-                                title={`Expenses: ${formatCurrency(expense)}`}
+                                title={`Expenses: ${formatCurrency(expense, currency, currencyRates)}`}
                               ></div>
                             </div>
                           </div>
@@ -1568,7 +1605,7 @@ export default function BusinessPage() {
                           >
                             <div className="absolute inset-6 flex items-center justify-center rounded-full bg-white">
                               <div className="text-center">
-                                <p className="text-2xl font-bold text-slate-900">{formatCurrency(total)}</p>
+                                <p className="text-2xl font-bold text-slate-900">{formatCurrency(total, currency, currencyRates)}</p>
                                 <p className="text-xs text-slate-600">Total</p>
                               </div>
                             </div>
@@ -1581,14 +1618,14 @@ export default function BusinessPage() {
                         <div className="h-3 w-3 rounded-full bg-blue-500"></div>
                         <div className="flex-1">
                           <p className="text-xs font-medium text-slate-700">Income</p>
-                          <p className="text-xs text-slate-500">{formatCurrency(cashSales.reduce((sum, sale) => sum + sale.totalAmount, 0) + creditInvoices.reduce((sum, inv) => sum + (typeof inv.balance === "number" && inv.balance < inv.amount ? inv.amount - inv.balance : 0), 0))}</p>
+                          <p className="text-xs text-slate-500">{formatCurrency(cashSales.reduce((sum, sale) => sum + sale.totalAmount, 0) + creditInvoices.reduce((sum, inv) => sum + (typeof inv.balance === "number" && inv.balance < inv.amount ? inv.amount - inv.balance : 0), 0), currency, currencyRates)}</p>
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
                         <div className="h-3 w-3 rounded-full bg-red-500"></div>
                         <div className="flex-1">
                           <p className="text-xs font-medium text-slate-700">Expenses</p>
-                          <p className="text-xs text-slate-500">{formatCurrency(totalExpenses)}</p>
+                          <p className="text-xs text-slate-500">{formatCurrency(totalExpenses, currency, currencyRates)}</p>
                         </div>
                       </div>
                     </div>
@@ -1617,7 +1654,7 @@ export default function BusinessPage() {
                     <div className="absolute inset-0 flex flex-col justify-between border-l border-slate-200">
                       {[maxY, maxY*0.75, maxY*0.5, maxY*0.25, 0].map((value, i) => (
                         <div key={i} className="flex items-center">
-                          <span className="w-12 text-xs text-slate-500">{formatCurrency(value)}</span>
+                          <span className="w-12 text-xs text-slate-500">{formatCurrency(value, currency, currencyRates)}</span>
                           <div className="flex-1 border-t border-slate-200"></div>
                         </div>
                       ))}
@@ -1700,7 +1737,7 @@ export default function BusinessPage() {
                               <span className="text-sm font-medium text-slate-700">{pm.method}</span>
                               <div className="text-right">
                                 <span className="text-sm font-semibold text-slate-900">{percentage}%</span>
-                                <span className="ml-2 text-xs text-slate-500">{formatCurrency(amount)}</span>
+                                <span className="ml-2 text-xs text-slate-500">{formatCurrency(amount, currency, currencyRates)}</span>
                               </div>
                             </div>
                             <div className="h-3 w-full overflow-hidden rounded-full bg-slate-100">
@@ -1859,7 +1896,7 @@ export default function BusinessPage() {
                     <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                       <p className="text-sm text-slate-600">
                         Total: <span className="font-semibold text-slate-900">
-                          {formatCurrency((Number(saleForm.quantity || 0) || 0) * (Number(saleForm.unitPrice || 0) || 0))}
+                          {formatCurrency((Number(saleForm.quantity || 0) || 0) * (Number(saleForm.unitPrice || 0) || 0), currency, currencyRates)}
                         </span>
                       </p>
                       <button
@@ -1881,7 +1918,7 @@ export default function BusinessPage() {
               <div className="grid gap-4 sm:grid-cols-4">
                 <div className="rounded-xl bg-white p-4 shadow-sm ring-1 ring-slate-200">
                   <p className="text-sm font-medium text-slate-600">Total Sales</p>
-                  <p className="mt-2 text-2xl font-bold text-green-600">{formatCurrency(totalSales)}</p>
+                  <p className="mt-2 text-2xl font-bold text-green-600">{formatCurrency(totalSales, currency, currencyRates)}</p>
                   <p className="mt-1 text-xs text-slate-500">This period</p>
                 </div>
                 <div className="rounded-xl bg-white p-4 shadow-sm ring-1 ring-slate-200">
@@ -1892,7 +1929,7 @@ export default function BusinessPage() {
                 <div className="rounded-xl bg-white p-4 shadow-sm ring-1 ring-slate-200">
                   <p className="text-sm font-medium text-slate-600">Average Sale</p>
                   <p className="mt-2 text-2xl font-bold text-slate-900">
-                    {sales.length ? formatCurrency(totalSales / sales.length) : formatCurrency(0)}
+                    {sales.length ? formatCurrency(totalSales / sales.length, currency, currencyRates) : formatCurrency(0, currency, currencyRates)}
                   </p>
                   <p className="mt-1 text-xs text-slate-500">Per transaction</p>
                 </div>
@@ -2001,11 +2038,11 @@ export default function BusinessPage() {
                             </td>
                             <td className="flex items-center justify-between gap-3 py-2 md:table-cell md:px-4 md:py-3 md:text-right">
                               <span className="text-xs font-semibold uppercase text-slate-500 md:hidden">Unit Price</span>
-                              <span className="text-sm text-slate-900">{formatCurrency(sale.unitPrice)}</span>
+                              <span className="text-sm text-slate-900">{formatCurrency(sale.unitPrice, currency, currencyRates)}</span>
                             </td>
                             <td className="flex items-center justify-between gap-3 py-2 md:table-cell md:px-4 md:py-3 md:text-right">
                               <span className="text-xs font-semibold uppercase text-slate-500 md:hidden">Total</span>
-                              <span className="text-sm font-semibold text-slate-900">{formatCurrency(sale.totalAmount)}</span>
+                              <span className="text-sm font-semibold text-slate-900">{formatCurrency(sale.totalAmount, currency, currencyRates)}</span>
                             </td>
                             <td className="flex items-center justify-between gap-3 py-2 md:table-cell md:px-4 md:py-3 md:text-center">
                               <span className="text-xs font-semibold uppercase text-slate-500 md:hidden">Type</span>
@@ -2103,8 +2140,8 @@ export default function BusinessPage() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
-                      {/* Filtered Cash sales */}
-                      {filteredCashSales.map((sale) => (
+                      {/* List all cash sales with print button */}
+                      {sales.filter(sale => sale.saleType === "cash").map((sale) => (
                         <tr key={sale._id} className="block border border-slate-200/70 bg-white p-4 shadow-sm md:table-row md:border-0 md:bg-transparent md:p-0 md:shadow-none">
                           <td className="flex items-center justify-between gap-3 py-2 md:table-cell md:py-3">
                             <span className="text-xs font-semibold uppercase text-slate-500 md:hidden">Date</span>
@@ -2120,32 +2157,43 @@ export default function BusinessPage() {
                           </td>
                           <td className="flex items-center justify-between gap-3 py-2 md:table-cell md:py-3 md:text-right">
                             <span className="text-xs font-semibold uppercase text-slate-500 md:hidden">Amount</span>
-                            <span className="text-sm font-semibold text-green-600">{formatCurrency(sale.totalAmount)}</span>
+                            <span className="text-sm font-semibold text-green-600">{formatCurrency(sale.totalAmount, currency, currencyRates)}</span>
                           </td>
                           <td className="flex items-center justify-between gap-3 py-2 md:table-cell md:py-3 md:text-right">
                             <span className="text-xs font-semibold uppercase text-slate-500 md:hidden">Type</span>
                             <span className="text-xs font-medium text-emerald-700">Cash</span>
                           </td>
+                          <td className="flex items-center justify-between gap-3 py-2 md:table-cell md:py-3 md:text-right">
+                            <button
+                              className="inline-flex items-center gap-1 rounded bg-blue-500 px-2 py-1 text-xs text-white hover:bg-blue-600 print:hidden"
+                              onClick={() => printSaleReceipt(sale)}
+                              type="button"
+                            >
+                              <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 9V2h12v7" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18v4h12v-4" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 14h12" /></svg>
+                              Print
+                            </button>
+                          </td>
                         </tr>
                       ))}
-                      {/* Filtered Payments received on credit sales */}
-                      {filteredCreditPayments.map((invoice) => (
-                        <tr key={invoice._id} className="block border border-slate-200/70 bg-white p-4 shadow-sm md:table-row md:border-0 md:bg-transparent md:p-0 md:shadow-none">
+
+                      {/* List all credit sales with any payment (partial or full) */}
+                      {sales.filter(sale => sale.saleType === "credit" && ((typeof sale.balance === "number" && sale.balance < sale.totalAmount) || typeof sale.balance !== "number")).map((sale) => (
+                        <tr key={sale._id} className="block border border-slate-200/70 bg-white p-4 shadow-sm md:table-row md:border-0 md:bg-transparent md:p-0 md:shadow-none">
                           <td className="flex items-center justify-between gap-3 py-2 md:table-cell md:py-3">
                             <span className="text-xs font-semibold uppercase text-slate-500 md:hidden">Date</span>
-                            <span className="text-sm text-slate-900">{new Date(invoice.createdAt).toLocaleDateString()}</span>
+                            <span className="text-sm text-slate-900">{new Date(sale.saleDate).toLocaleDateString()}</span>
                           </td>
                           <td className="flex items-center justify-between gap-3 py-2 md:table-cell md:py-3">
                             <span className="text-xs font-semibold uppercase text-slate-500 md:hidden">Source</span>
-                            <span className="text-sm text-slate-900">{invoice.clientName}</span>
+                            <span className="text-sm text-slate-900">{sale.customerName || "Credit Sale"}</span>
                           </td>
                           <td className="flex items-center justify-between gap-3 py-2 md:table-cell md:py-3">
                             <span className="text-xs font-semibold uppercase text-slate-500 md:hidden">Description</span>
-                            <span className="text-sm text-slate-600">{invoice.invoiceNumber}</span>
+                            <span className="text-sm text-slate-600">{sale.invoiceNumber}</span>
                           </td>
                           <td className="flex items-center justify-between gap-3 py-2 md:table-cell md:py-3 md:text-right">
                             <span className="text-xs font-semibold uppercase text-slate-500 md:hidden">Amount</span>
-                            <span className="text-sm font-semibold text-green-600">{formatCurrency(invoice.amount - (invoice.balance ?? 0))}</span>
+                            <span className="text-sm font-semibold text-green-600">{formatCurrency(typeof sale.balance === "number" ? sale.totalAmount - sale.balance : sale.totalAmount, currency, currencyRates)}</span>
                           </td>
                           <td className="flex items-center justify-between gap-3 py-2 md:table-cell md:py-3 md:text-right">
                             <span className="text-xs font-semibold uppercase text-slate-500 md:hidden">Type</span>
@@ -2160,8 +2208,21 @@ export default function BusinessPage() {
                         <td colSpan={3} className="pt-3 text-right font-semibold">Total Income Received:</td>
                         <td className="pt-3 text-right font-bold text-green-700" colSpan={2}>
                           {formatCurrency(
-                            filteredCashSales.reduce((sum, sale) => sum + sale.totalAmount, 0) +
-                            filteredCreditPayments.reduce((sum, inv) => sum + (typeof inv.balance === "number" && inv.balance < inv.amount ? inv.amount - inv.balance : 0), 0)
+                            sales.reduce((sum, sale) => {
+                              if (sale.saleType === "cash") {
+                                return sum + sale.totalAmount;
+                              } else if (sale.saleType === "credit") {
+                                if (typeof sale.balance === "number") {
+                                  return sum + (sale.totalAmount - sale.balance);
+                                } else {
+                                  // If no balance, treat as fully paid
+                                  return sum + sale.totalAmount;
+                                }
+                              }
+                              return sum;
+                            }, 0),
+                            currency,
+                            currencyRates
                           )}
                         </td>
                       </tr>
@@ -2169,7 +2230,9 @@ export default function BusinessPage() {
                         <td colSpan={3} className="text-right font-semibold">Outstanding Credit Balances:</td>
                         <td className="text-right font-bold text-amber-700" colSpan={2}>
                           {formatCurrency(
-                            filteredCreditPayments.reduce((sum, inv) => sum + (typeof inv.balance === "number" ? inv.balance : 0), 0)
+                            pendingInvoices.reduce((sum, inv) => sum + inv.amount, 0),
+                            currency,
+                            currencyRates
                           )}
                         </td>
                       </tr>
@@ -2272,11 +2335,11 @@ export default function BusinessPage() {
               <div className="grid gap-4 sm:grid-cols-3">
                 <div className="rounded-xl bg-white p-4 shadow-sm ring-1 ring-slate-200">
                   <p className="text-sm font-medium text-slate-600">This Month</p>
-                  <p className="mt-2 text-2xl font-bold text-slate-900">{formatCurrency(totalExpensesThisMonth)}</p>
+                  <p className="mt-2 text-2xl font-bold text-slate-900">{formatCurrency(totalExpensesThisMonth, currency, currencyRates)}</p>
                 </div>
                 <div className="rounded-xl bg-white p-4 shadow-sm ring-1 ring-slate-200">
                   <p className="text-sm font-medium text-slate-600">Average Daily</p>
-                  <p className="mt-2 text-2xl font-bold text-slate-900">{formatCurrency(averageDailyExpenses)}</p>
+                  <p className="mt-2 text-2xl font-bold text-slate-900">{formatCurrency(averageDailyExpenses, currency, currencyRates)}</p>
                 </div>
                 <div className="rounded-xl bg-white p-4 shadow-sm ring-1 ring-slate-200">
                   <p className="text-sm font-medium text-slate-600">Total Transactions</p>
@@ -2358,7 +2421,7 @@ export default function BusinessPage() {
                             </td>
                             <td className="flex items-center justify-between gap-3 py-2 md:table-cell md:py-3 md:text-right">
                               <span className="text-xs font-semibold uppercase text-slate-500 md:hidden">Amount</span>
-                              <span className="text-sm font-semibold text-slate-900">{formatCurrency(expense.amount)}</span>
+                              <span className="text-sm font-semibold text-slate-900">{formatCurrency(expense.amount, currency, currencyRates)}</span>
                             </td>
                             <td className="flex items-center justify-between gap-3 py-2 md:table-cell md:py-3 md:text-right">
                               <span className="text-xs font-semibold uppercase text-slate-500 md:hidden">Actions</span>
@@ -2399,12 +2462,12 @@ export default function BusinessPage() {
                 <div className="rounded-xl bg-white p-4 shadow-sm ring-1 ring-slate-200">
                   <p className="text-sm font-medium text-slate-600">Total Outstanding</p>
                   <p className="mt-2 text-2xl font-bold text-amber-600">
-                    {formatCurrency([...pendingInvoices, ...overdueInvoices].reduce((sum, inv) => sum + inv.amount, 0))}
+                    {formatCurrency([...pendingInvoices, ...overdueInvoices].reduce((sum, inv) => sum + inv.amount, 0), currency, currencyRates)}
                   </p>
                 </div>
                 <div className="rounded-xl bg-white p-4 shadow-sm ring-1 ring-slate-200">
                   <p className="text-sm font-medium text-slate-600">Paid This Month</p>
-                  <p className="mt-2 text-2xl font-bold text-green-600">{formatCurrency(totalIncome)}</p>
+                  <p className="mt-2 text-2xl font-bold text-green-600">{formatCurrency(totalIncome, currency, currencyRates)}</p>
                 </div>
                 <div className="rounded-xl bg-white p-4 shadow-sm ring-1 ring-slate-200">
                   <p className="text-sm font-medium text-slate-600">Overdue</p>
@@ -2470,10 +2533,10 @@ export default function BusinessPage() {
                           </td>
                           <td className="flex items-center justify-between gap-3 py-2 md:table-cell md:py-3 md:text-right">
                             <span className="text-xs font-semibold uppercase text-slate-500 md:hidden">Amount</span>
-                            <span className="text-sm font-semibold text-slate-900">{formatCurrency(invoice.amount)}</span>
+                            <span className="text-sm font-semibold text-slate-900">{formatCurrency(invoice.amount, currency, currencyRates)}</span>
                             {/* Show balance if available */}
                             {typeof invoice.balance === "number" && invoice.balance > 0 && (
-                              <span className="block text-xs text-amber-600">Balance: {formatCurrency(Number.isFinite(invoice.balance) ? invoice.balance : 0)}</span>
+                              <span className="block text-xs text-amber-600">Balance: {formatCurrency(Number.isFinite(invoice.balance) ? invoice.balance : 0, currency, currencyRates)}</span>
                             )}
                           </td>
                           <td className="flex items-center justify-between gap-3 py-2 md:table-cell md:py-3 md:text-center">
@@ -2525,7 +2588,7 @@ export default function BusinessPage() {
                                   invoice={invoice}
                                   currency={currency}
                                   currencyRates={currencyRates}
-                                  onPaymentSuccess={updatedInvoice => handleInvoicePaymentSuccess(updatedInvoice)}
+                                  onPaymentSuccess={fetchData}
                                 />
                               )}
                             </div>
@@ -2731,22 +2794,22 @@ export default function BusinessPage() {
                             </td>
                             <td className="flex items-center justify-between gap-3 py-2 md:table-cell md:px-4 md:py-3 md:text-right">
                               <span className="text-xs font-semibold uppercase text-slate-500 md:hidden">Cost / Item</span>
-                              <span className="text-sm text-slate-900">{formatCurrency(Number(item.unitPrice ?? 0))}</span>
+                              <span className="text-sm text-slate-900">{formatCurrency(Number(item.unitPrice ?? 0), currency, currencyRates)}</span>
                             </td>
                             <td className="flex items-center justify-between gap-3 py-2 md:table-cell md:px-4 md:py-3 md:text-right">
                               <span className="text-xs font-semibold uppercase text-slate-500 md:hidden">Selling / Item</span>
-                              <span className="text-sm text-slate-900">{formatCurrency(Number(item.sellingPrice ?? item.unitPrice ?? 0))}</span>
+                              <span className="text-sm text-slate-900">{formatCurrency(Number(item.sellingPrice ?? item.unitPrice ?? 0), currency, currencyRates)}</span>
                             </td>
                             <td className="flex items-center justify-between gap-3 py-2 md:table-cell md:px-4 md:py-3 md:text-right">
                               <span className="text-xs font-semibold uppercase text-slate-500 md:hidden">Total Cost</span>
                               <span className="text-sm text-slate-900">
-                                {formatCurrency(Number(item.unitPrice ?? 0) * Number(item.quantityInStock ?? 0))}
+                                {formatCurrency(Number(item.unitPrice ?? 0) * Number(item.quantityInStock ?? 0), currency, currencyRates)}
                               </span>
                             </td>
                             <td className="flex items-center justify-between gap-3 py-2 md:table-cell md:px-4 md:py-3 md:text-right">
                               <span className="text-xs font-semibold uppercase text-slate-500 md:hidden">Total Selling</span>
                               <span className="text-sm text-slate-900">
-                                {formatCurrency(Number(item.sellingPrice ?? item.unitPrice ?? 0) * Number(item.quantityInStock ?? 0))}
+                                {formatCurrency(Number(item.sellingPrice ?? item.unitPrice ?? 0) * Number(item.quantityInStock ?? 0), currency, currencyRates)}
                               </span>
                             </td>
                             <td className="flex items-center justify-between gap-3 py-2 md:table-cell md:px-4 md:py-3">
@@ -2900,17 +2963,19 @@ export default function BusinessPage() {
               <div className="grid gap-4 sm:grid-cols-4">
                 <div className="rounded-xl bg-white p-4 shadow-sm ring-1 ring-slate-200">
                   <p className="text-xs font-medium text-slate-600">Total Sales</p>
-                  <p className="mt-2 text-xl font-bold text-green-600">{formatCurrency(sales.reduce((sum, sale) => sum + sale.totalAmount, 0))}</p>
+                  <p className="mt-2 text-xl font-bold text-green-600">{formatCurrency(sales.reduce((sum, sale) => sum + sale.totalAmount, 0), currency, currencyRates)}</p>
                 </div>
                 <div className="rounded-xl bg-white p-4 shadow-sm ring-1 ring-slate-200">
                   <p className="text-xs font-medium text-slate-600">Total Expenses</p>
-                  <p className="mt-2 text-xl font-bold text-red-600">{formatCurrency(totalExpenses)}</p>
+                  <p className="mt-2 text-xl font-bold text-red-600">{formatCurrency(totalExpenses, currency, currencyRates)}</p>
                 </div>
                 <div className="rounded-xl bg-white p-4 shadow-sm ring-1 ring-slate-200">
                   <p className="text-xs font-medium text-slate-600">Total Income</p>
                   <p className="mt-2 text-xl font-bold text-blue-600">{formatCurrency(
                     cashSales.reduce((sum, sale) => sum + sale.totalAmount, 0) +
-                    creditInvoices.reduce((sum, inv) => sum + (typeof inv.balance === "number" && inv.balance < inv.amount ? inv.amount - inv.balance : 0), 0)
+                    creditInvoices.reduce((sum, inv) => sum + (typeof inv.balance === "number" && inv.balance < inv.amount ? inv.amount - inv.balance : 0), 0),
+                    currency,
+                    currencyRates
                   )}</p>
                 </div>
                 <div className="rounded-xl bg-white p-4 shadow-sm ring-1 ring-slate-200">
@@ -2919,7 +2984,9 @@ export default function BusinessPage() {
                     (
                       cashSales.reduce((sum, sale) => sum + sale.totalAmount, 0) +
                       creditInvoices.reduce((sum, inv) => sum + (typeof inv.balance === "number" && inv.balance < inv.amount ? inv.amount - inv.balance : 0), 0)
-                    ) - totalExpenses
+                    ) - totalExpenses,
+                    currency,
+                    currencyRates
                   )}</p>
                 </div>
               </div>
@@ -2946,7 +3013,7 @@ export default function BusinessPage() {
                           <td className="px-4 py-2">{new Date(sale.saleDate).toLocaleDateString()}</td>
                           <td className="px-4 py-2 text-green-700 font-semibold">Sale</td>
                           <td className="px-4 py-2">{sale.productName} {sale.customerName ? `to ${sale.customerName}` : ''}</td>
-                          <td className="px-4 py-2 text-green-700">{formatCurrency(sale.totalAmount)}</td>
+                          <td className="px-4 py-2 text-green-700">{formatCurrency(sale.totalAmount, currency, currencyRates)}</td>
                           <td className="px-4 py-2">{sale.status}</td>
                         </tr>
                       ))}
@@ -2956,7 +3023,7 @@ export default function BusinessPage() {
                           <td className="px-4 py-2">{new Date(exp.occurredOn).toLocaleDateString()}</td>
                           <td className="px-4 py-2 text-red-700 font-semibold">Expense</td>
                           <td className="px-4 py-2">{exp.label} ({exp.category || 'General'})</td>
-                          <td className="px-4 py-2 text-red-700">-{formatCurrency(exp.amount)}</td>
+                          <td className="px-4 py-2 text-red-700">-{formatCurrency(exp.amount, currency, currencyRates)}</td>
                           <td className="px-4 py-2">-</td>
                         </tr>
                       ))}
@@ -2966,7 +3033,7 @@ export default function BusinessPage() {
                           <td className="px-4 py-2">{new Date(inv.createdAt).toLocaleDateString()}</td>
                           <td className="px-4 py-2 text-blue-700 font-semibold">Credit Payment</td>
                           <td className="px-4 py-2">{inv.invoiceNumber} ({inv.clientName})</td>
-                          <td className="px-4 py-2 text-blue-700">{formatCurrency(inv.amount - (inv.balance ?? 0))}</td>
+                          <td className="px-4 py-2 text-blue-700">{formatCurrency(inv.amount - (inv.balance ?? 0), currency, currencyRates)}</td>
                           <td className="px-4 py-2">{inv.status}</td>
                         </tr>
                       ))}
@@ -3017,8 +3084,8 @@ export default function BusinessPage() {
                             <td className="px-4 py-2">{sale.productName}</td>
                             <td className="px-4 py-2">{sale.customerName || '-'}</td>
                             <td className="px-4 py-2">{sale.quantity}</td>
-                            <td className="px-4 py-2">{formatCurrency(sale.unitPrice)}</td>
-                            <td className="px-4 py-2">{formatCurrency(sale.totalAmount)}</td>
+                            <td className="px-4 py-2">{formatCurrency(sale.unitPrice, currency, currencyRates)}</td>
+                            <td className="px-4 py-2">{formatCurrency(sale.totalAmount, currency, currencyRates)}</td>
                             <td className="px-4 py-2">{sale.saleType}</td>
                             <td className="px-4 py-2">{sale.status}</td>
                           </tr>
