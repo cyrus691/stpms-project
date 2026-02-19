@@ -1,8 +1,32 @@
-﻿"use client";
+﻿  type AnnouncementData = { createdAt?: string };
+"use client";
 
-import { signOut } from "next-auth/react";
+import React, { useMemo } from "react";
+interface SystemHealthMetric {
+  label: string;
+  value: number;
+  status: string;
+  percentage?: number;
+  target?: string;
+}
+interface Activity {
+  _id: string;
+  id?: string;
+  type: string;
+  userId: string;
+  user?: string;
+  action?: string;
+  description?: string;
+  createdAt: string;
+  time?: string;
+  icon?: React.ReactNode;
+}
+import { signOut, useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
+import {
+  BarChart, Bar, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell
+} from "recharts";
 
 interface User {
   _id: string;
@@ -17,40 +41,6 @@ interface User {
   createdAt: string;
 }
 
-interface Activity {
-  id: string;
-  user: string;
-  action: string;
-  type: string;
-  time: string;
-  role?: string;
-  icon: string;
-}
-
-interface LoginEvent {
-  _id: string;
-  userId: string;
-  role: "admin" | "student" | "business";
-  createdAt: string;
-}
-
-
-interface Announcement {
-  _id: string;
-  title: string;
-  body: string;
-  audience: ("student" | "business")[];
-  targetUserIds?: string[];
-  createdAt: string;
-}
-
-interface SystemHealthMetric {
-  label: string;
-  value: string;
-  status: "good" | "warning" | "critical";
-  target: string;
-  percentage: number;
-}
 
 interface SystemHealthData {
   score: number;
@@ -72,47 +62,9 @@ interface AuditLog {
   createdAt: string;
 }
 
-interface ReportSummary {
-  users: {
-    total: number;
-    byRole: Record<string, number>;
-    byStatus: Record<string, number>;
-    newRegistrations: number;
-  };
-  timetable: {
-    total: number;
-    active: number;
-    archived: number;
-    conflicts: number;
-    updates: number;
-  };
-  approvals: {
-    submitted: number;
-    approved: number;
-    rejected: number;
-    pending: number;
-    avgApprovalHours: number | null;
-  };
-  notifications: {
-    sent: number;
-    read: number | null;
-    unread: number | null;
-    failed: number | null;
-    byType: Record<string, number>;
-  };
-  activity: {
-    logins: number;
-    loginsByRole: Record<string, number>;
-    adminActions: number;
-    failedLogins: number;
-    avgSessionMinutes: number | null;
-  };
-  sessions: {
-    count: number;
-    avgDurationMinutes: number | null;
-  };
-  auditLogs: AuditLog[];
-}
+// ...existing code...
+
+// ...existing code...
 
 interface ReminderItem {
   id: string;
@@ -132,113 +84,276 @@ interface TaskItem {
   createdAt: string;
 }
 
+// Local type aliases for Announcement and LoginEvent
+// Announcement and LoginEvent interfaces already defined above
+
+type Announcement = {
+  _id: string;
+  title: string;
+  body: string;
+  userId?: string;
+  targetUserIds?: string[];
+  audience: ("student" | "business")[];
+  createdAt: string;
+};
+
+type LoginEvent = {
+  userId: string;
+  role: "admin" | "student" | "business";
+  createdAt: string;
+};
+
 export default function AdminPage() {
-  const router = useRouter();
-  const initialEndDate = new Date().toISOString().split("T")[0];
-  const initialStartDate = (() => {
-    const start = new Date();
-    start.setDate(start.getDate() - 30);
-    return start.toISOString().split("T")[0];
-  })();
-  const [activeSection, setActiveSection] = useState("overview");
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [students, setStudents] = useState<User[]>([]);
-  const [businessUsers, setBusinessUsers] = useState<User[]>([]);
-  const [activities, setActivities] = useState<Activity[]>([]);
-  const [loginEvents] = useState<LoginEvent[]>([]);
-  const [activitiesLoading, setActivitiesLoading] = useState(false);
-  // Removed unused: loginEventsLoading, setLoginEventsLoading
-  const [reportSummary, setReportSummary] = useState<ReportSummary | null>(null);
-  const [reportLoading, setReportLoading] = useState(false);
-  const [reportFilters, setReportFilters] = useState({
-    startDate: initialStartDate,
-    endDate: initialEndDate,
-    role: "all",
-    status: "all",
-    sessionUserId: "all",
-    sessionStartDate: initialStartDate,
-    sessionEndDate: initialEndDate,
-    activityUserId: "all",
-    activityStartDate: initialStartDate,
-    activityEndDate: initialEndDate,
-    search: ""
-  });
-  const [stats, setStats] = useState({
-    studentsGrowth: 0,
-    businessGrowth: 0,
-    tasksGrowth: 0,
-    totalUsersGrowth: 0,
-    previousStudents: 0,
-    previousBusiness: 0,
-    previousTasks: 0
-  });
-  const [chartData, setChartData] = useState({
-    userGrowth: [] as { month: string; students: number; business: number }[],
-    taskDistribution: { pending: 0, completed: 0 }
-  });
-  const [systemHealth, setSystemHealth] = useState<SystemHealthData>({
-    score: 0,
-    status: "operational",
-    statusLabel: "Loading...",
-    updatedAt: "",
-    metrics: [],
-    trend: []
-  });
-  const [loading, setLoading] = useState(false);
-  const [editingUser, setEditingUser] = useState<User | null>(null);
+  const { data: session } = useSession();
+    // --- SETTINGS EDIT STATE ---
+    const [isEditingSettings, setIsEditingSettings] = useState(false);
+  // --- CREATE USER HANDLER ---
+  const handleCreateUser = async () => {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    const nextErrors: { [key: string]: string } = {};
+    if (!newUserForm.username.trim()) nextErrors.username = "Username is required";
+    if (!newUserForm.name.trim()) nextErrors.name = "Name is required";
+    if (!newUserForm.email.trim()) nextErrors.email = "Email is required";
+    if (newUserForm.email && !emailRegex.test(newUserForm.email)) nextErrors.email = "Enter a valid email";
+    if (!newUserForm.phone.trim()) nextErrors.phone = "Phone number is required";
+    if (!/^[\d+\-() ]{7,}$/.test(newUserForm.phone.trim())) nextErrors.phone = "Enter a valid phone number";
+    if (!newUserForm.password || newUserForm.password.length < 6) nextErrors.password = "Password must be at least 6 characters";
+    if (!newUserForm.role) nextErrors.role = "Role is required";
+    if (Object.keys(nextErrors).length > 0) {
+      setNewUserErrors(nextErrors);
+      return;
+    }
+    setNewUserErrors({});
+    try {
+      let data = {};
+      const response = await fetch("/api/users", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(newUserForm)
+      });
+      const text = await response.text();
+      if (text) {
+        try {
+          data = JSON.parse(text);
+        } catch (e) {
+          data = { error: "Invalid server response." };
+        }
+      } else {
+        data = { error: "No response from server." };
+      }
+      if (response.ok) {
+        setShowAddUserModal(false);
+        setNewUserForm({ username: "", email: "", name: "", phone: "", role: "student", password: "" });
+        alert("User created successfully!");
+        // Clear cache to force fresh fetch
+        if (apiCache && apiCache.current) {
+          apiCache.current.users = undefined;
+          apiCache.current.business = undefined;
+          apiCache.current.health = undefined;
+          apiCache.current.adminSettings = undefined;
+        }
+        await fetchUsers({ silent: false });
+      } else {
+        // Check for MongoDB duplicate key error (E11000)
+        if (data && typeof data === "object" && "error" in data && typeof (data as any).error === "string" && (data as any).error.includes("E11000")) {
+          setNewUserErrors((prev) => ({ ...prev, email: "A user with this email already exists." }));
+        } else if (data && typeof data === "object" && "error" in data && typeof (data as any).error === "string") {
+          alert((data as any).error || "Failed to create user");
+        } else {
+          alert("Failed to create user");
+        }
+      }
+    } catch (error) {
+      console.error("Error creating user:", error);
+      alert("Error creating user");
+    }
+  };
+
+  // --- User Role Chart Filter State ---
+  const [userRoleFilter, setUserRoleFilter] = useState("all");
+  // --- LOGIN EVENTS STATE (for activity tracking) ---
+  const [loginEvents, setLoginEvents] = useState<LoginEvent[]>([]);
+
+  // Fetch login events for charts
+  useEffect(() => {
+    async function fetchLoginEvents() {
+      try {
+        const res = await fetch('/api/login-events');
+        if (res.ok) {
+          const data = await res.json();
+          setLoginEvents(Array.isArray(data) ? data : []);
+        }
+      } catch (err) {
+        setLoginEvents([]);
+      }
+    }
+    fetchLoginEvents();
+  }, []);
+
+  // --- showAllActivities state ---
   const [showAllActivities, setShowAllActivities] = useState(false);
-  const [showNotifications, setShowNotifications] = useState(false);
-  const [editFormData, setEditFormData] = useState({
-    username: "",
-    email: "",
-    name: "",
-    role: "",
-    password: ""
+
+  // --- chartData state ---
+  const [chartData, setChartData] = useState({
+    userGrowth: [] as { month: string; students: number; business: number; admins?: number }[],
   });
-  const [editErrors, setEditErrors] = useState<{ [key: string]: string }>({});
-  // Removed unused: showResetModal, setShowResetModal, resetUserId, setResetUserId
-  const [showAddUserModal, setShowAddUserModal] = useState(false);
-  const [showAnnouncementModal, setShowAnnouncementModal] = useState(false);
-  const [announcements, setAnnouncements] = useState<Announcement[]>([]);
-  const [announcementsLoading, setAnnouncementsLoading] = useState(false);
-  const [announcementErrors, setAnnouncementErrors] = useState<{ [key: string]: string }>({});
-  const [selectedAuditLog, setSelectedAuditLog] = useState<AuditLog | null>(null);
-  const [tasks, setTasks] = useState<TaskItem[]>([]);
-  const [tasksLoading, setTasksLoading] = useState(false);
-  const [showReportModal, setShowReportModal] = useState(false);
-  const [reportForm, setReportForm] = useState({
-    type: "users",
-    range: "30",
-    includeDetails: true
-  });
-  const [reportErrors, setReportErrors] = useState<{ [key: string]: string }>({});
-  const [adminSettings, setAdminSettings] = useState({
-    username: "",
-    name: "",
-    email: "",
-    timeFormat: "24"
-  });
-  const [settingsErrors, setSettingsErrors] = useState<{ [key: string]: string }>({});
-  const [isEditingSettings, setIsEditingSettings] = useState(false);
+
+            // --- User Role Chart Data ---
+            const userRoleChartData = chartData.userGrowth.map((d) => ({
+              month: d.month,
+              students: d.students,
+              business: d.business,
+              admins: d.admins || 0,
+            }));
+
+            // --- getMaxValue utility function ---
+            function getMaxValue(obj: Record<string, number>): number {
+              return Object.values(obj).reduce((max, val) => (val > max ? val : max), 0);
+            }
+
+            // --- getBarWidth utility function ---
+            function getBarWidth(count: number, max: number): string {
+              if (!max || max === 0) return '0%';
+              const width = (Number(count) / Number(max)) * 100;
+              return `${Math.max(0, Math.min(width, 100))}%`;
+            }
+
+            // --- buildPieGradient utility function ---
+            function buildPieGradient(data: Record<string, number>, colors: string[]): string {
+              const total = Object.values(data).reduce((sum, val) => sum + val, 0);
+              if (total === 0) return 'conic-gradient(#e5e7eb 0 100%)';
+              let start = 0;
+              let stops: string[] = [];
+              let i = 0;
+              for (const key in data) {
+                const percent = (data[key] / total) * 100;
+                const end = start + percent;
+                stops.push(`${colors[i % colors.length]} ${start}% ${end}%`);
+                start = end;
+                i++;
+              }
+              return `conic-gradient(${stops.join(', ')})`;
+            }
+
+  // --- PASSWORD FORM STATE ---
   const [passwordForm, setPasswordForm] = useState({
     currentPassword: "",
     newPassword: "",
     confirmPassword: ""
   });
   const [passwordErrors, setPasswordErrors] = useState<{ [key: string]: string }>({});
-  const [newUserForm, setNewUserForm] = useState({
+
+      // --- AUDIT LOG MODAL STATE ---
+      const [selectedAuditLog, setSelectedAuditLog] = useState<AuditLog | null>(null);
+
+      // --- MOBILE MENU & NOTIFICATIONS ---
+      const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+      const [showNotifications, setShowNotifications] = useState(false);
+
+      // --- MENU ITEMS (ensure always defined) ---
+      const menuItems = [
+        { id: "overview", label: "Overview", icon: <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" /></svg> },
+        { id: "students", label: "Students", icon: <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" /></svg> },
+        { id: "business", label: "Business Users", icon: <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg> },
+        { id: "announcements", label: "Announcements", icon: <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5.882V19.24a1.76 1.76 0 01-3.417.592l-2.147-6.15M18 13a3 3 0 100-6M5.436 13.683A4.001 4.001 0 017 6h1.832c4.1 0 7.625-1.234 9.168-3v14c-1.543-1.766-5.067-3-9.168-3H7a3.988 3.988 0 01-1.564-.317z" /></svg> },
+        { id: "tasks", label: "Tasks", icon: <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5h6m-6 4h6m-6 4h6m-7 7h8a2 2 0 002-2V4a2 2 0 00-2-2H8a2 2 0 00-2 2v16a2 2 0 002 2z" /></svg> },
+        { id: "timetable", label: "Timetables", icon: <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg> },
+        { id: "reports", label: "Reports", icon: <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg> },
+        { id: "settings", label: "Settings", icon: <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg> }
+      ];
+
+      // --- LOGIN EVENTS STATE (for activity tracking) ---
+
+      // --- getMaxValue utility function ---
+    // --- USER EDIT/ADD STATE ---
+  const [editingUser, setEditingUser] = useState<User | null>(null);
+  const [editFormData, setEditFormData] = useState({
     username: "",
     email: "",
     name: "",
     role: "student",
     password: ""
   });
+  const [editErrors, setEditErrors] = useState<{ [key: string]: string }>({});
+  const [showAddUserModal, setShowAddUserModal] = useState(false);
+  const [newUserForm, setNewUserForm] = useState({
+    username: "",
+    email: "",
+    name: "",
+    phone: "",
+    role: "student",
+    password: ""
+  });
   const [newUserErrors, setNewUserErrors] = useState<{ [key: string]: string }>({});
+
+    // --- ANNOUNCEMENT/REPORT/SETTINGS MODALS & ERRORS ---
+    const [showAnnouncementModal, setShowAnnouncementModal] = useState(false);
+    const [announcementErrors, setAnnouncementErrors] = useState<{ [key: string]: string }>({});
+    const [showReportModal, setShowReportModal] = useState(false);
+    const [reportErrors, setReportErrors] = useState<{ [key: string]: string }>({});
+    const [settingsErrors, setSettingsErrors] = useState<{ [key: string]: string }>({});
+  const router = useRouter();
+  // const initialEndDate = new Date().toISOString().split("T")[0];
+  // Simple in-memory cache for session
+  const apiCache = useRef<any>({});
+
+
+  // --- STATE AND REF DECLARATIONS ---
+  const [loading, setLoading] = useState(false);
+  const [students, setStudents] = useState<User[]>([]);
+  const [businessUsers, setBusinessUsers] = useState<User[]>([]);
+  const [systemHealth, setSystemHealth] = useState<SystemHealthData | null>(null);
+  const [adminSettings, setAdminSettings] = useState({ username: "", name: "", email: "", timeFormat: "24" });
+  const [activities, setActivities] = useState<Activity[]>([]);
+  // Removed unused activitiesLoading
+  const [announcements, setAnnouncements] = useState<Announcement[]>([]);
+  // Removed unused announcementsLoading
+
+  // Fetch announcements from API on mount and after changes
+  const fetchAnnouncements = useCallback(async () => {
+    try {
+      // Always fetch all announcements for admin
+      const res = await fetch("/api/announcements?audience=all");
+      if (res.ok) {
+        const data = await res.json();
+        setAnnouncements(Array.isArray(data) ? data : []);
+      } else {
+        setAnnouncements([]);
+      }
+    } catch {
+      setAnnouncements([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchAnnouncements();
+  }, [fetchAnnouncements]);
+  const [tasks, setTasks] = useState<TaskItem[]>([]);
+  const [tasksLoading] = useState(false);
+  const [reportLoading, setReportLoading] = useState(false);
+  const [activeSection, setActiveSection] = useState<string>("overview");
+  type ReportFilters = {
+    startDate?: string;
+    endDate?: string;
+    role?: string;
+    status?: string;
+    search?: string;
+    activityStartDate?: string;
+    activityEndDate?: string;
+    activityUserId?: string;
+    sessionStartDate?: string;
+    sessionEndDate?: string;
+    sessionUserId?: string;
+    // Add any other fields as needed
+  };
+  const [reportFilters, setReportFilters] = useState<ReportFilters>({});
+  const [reportForm, setReportForm] = useState<any>({ type: "users", range: "30", includeDetails: true });
+  // ...other useState/useRef declarations...
   const [studentSearchTerm, setStudentSearchTerm] = useState("");
   const [studentStatusFilter, setStudentStatusFilter] = useState<"all" | "active" | "inactive">("all");
   const [businessSearchTerm, setBusinessSearchTerm] = useState("");
   const [businessStatusFilter, setBusinessStatusFilter] = useState<"all" | "active" | "inactive">("all");
-  const [activityRange, setActivityRange] = useState<"today" | "7" | "30" | "365">("7");
+  const [activityRange, setActivityRange] = useState<string>(`${new Date().getMonth() + 1}`);
   const [announcementForm, setAnnouncementForm] = useState({
     title: "",
     message: "",
@@ -257,27 +372,121 @@ export default function AdminPage() {
     dueAt: ""
   });
   const reminderSectionRef = useRef<HTMLDivElement | null>(null);
+  // --- FETCH FUNCTIONS (useCallback) ---
+  const calculateGrowthAndCharts = useCallback((studentsData: User[], businessData: User[]) => {
+    // Removed unused sevenDaysAgo, fourteenDaysAgo
 
-  // Initialize arrays to prevent undefined errors
+    // Removed unused recentStudents, previousStudents, recentBusiness, previousBusiness
+    // Removed unused businessGrowth
 
-  // Load critical data immediately for fast dashboard render
-  useEffect(() => {
-    fetchUsers(); // Load users and system health first
-    fetchActivities({ silent: true }); // Load activities for dashboard
+    // Total users growth
+    // Removed unused recentTotal and previousTotal
+    // Removed unused totalUsersGrowth
+
+    // --- User Growth by Month and Role for Chart ---
+    // Combine all users and group by month and role
+    const allUsers = [
+      ...((Array.isArray(studentsData) ? studentsData : studentsData ? [studentsData] : [])).map(u => ({ ...u, role: "student" })),
+      ...((Array.isArray(businessData) ? businessData : businessData ? [businessData] : [])).map(u => ({ ...u, role: "business" })),
+    ];
+    // Optionally, if you have admin users, add them here
+    // ...adminsData.map(u => ({ ...u, role: "admin" }))
+
+    // Get unique months (YYYY-MM) from all users
+    const monthsSet = new Set<string>();
+    allUsers.forEach(u => {
+      if (u.createdAt) {
+        const d = new Date(u.createdAt);
+        const month = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+        monthsSet.add(month);
+      }
+    });
+    const months = Array.from(monthsSet).sort();
+
+    // Build chart data: [{ month, students, business, admins }]
+    const chartDataArr = months.map(month => {
+      const students = allUsers.filter(u => u.role === "student" && u.createdAt && new Date(u.createdAt).getFullYear() + '-' + String(new Date(u.createdAt).getMonth() + 1).padStart(2, '0') === month).length;
+      const business = allUsers.filter(u => u.role === "business" && u.createdAt && new Date(u.createdAt).getFullYear() + '-' + String(new Date(u.createdAt).getMonth() + 1).padStart(2, '0') === month).length;
+      // If you have admin users, add them here
+      // const admins = allUsers.filter(u => u.role === "admin" && u.createdAt && new Date(u.createdAt).getFullYear() + '-' + String(new Date(u.createdAt).getMonth() + 1).padStart(2, '0') === month).length;
+      return { month, students, business };
+    });
+
+    // Removed setStats call (stats state no longer exists)
+    setChartData({ userGrowth: chartDataArr });
   }, []);
 
-  // Load secondary data after initial render
-  useEffect(() => {
-    fetchTasks({ silent: true });
-    fetchAnnouncements();
-  }, []);
+  // --- STATS STATE ---
+  // Removed unused stats state
 
-  useEffect(() => {
-    if (activeSection !== "reports") return;
-    fetchReportSummary(reportFilters);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [reportFilters, activeSection]);
+  const fetchUsers = useCallback(async (options?: { silent?: boolean }) => {
+    try {
+      if (!options?.silent) setLoading(true);
+      // Only admin can see all users/businesses
+      // Type assertion to extend session.user with role and id
+      const userRole = (session?.user as { role?: string })?.role;
+      const userId = (session?.user as { id?: string })?.id;
+      let studentsArr: User[] = [];
+      let businessArr: User[] = [];
+      let healthData = null;
+      let adminSettingsData = null;
+      if (userRole === "admin") {
+        // Admin: fetch all
+        const [studentsRes, businessRes, healthRes, adminSettingsRes] = await Promise.all([
+          fetch("/api/admin/users?role=student", { headers: { 'x-admin-auth': 'true' } }),
+          fetch("/api/admin/users?role=business", { headers: { 'x-admin-auth': 'true' } }),
+          fetch("/api/system-health"),
+          fetch("/api/admin/settings"),
+        ]);
+        const [studentsData, businessData, health, adminSettings] = await Promise.all([
+          studentsRes.json(),
+          businessRes.json(),
+          healthRes.ok ? healthRes.json() : Promise.resolve(null),
+          adminSettingsRes.ok ? adminSettingsRes.json() : Promise.resolve(null)
+        ]);
+        studentsArr = (Array.isArray(studentsData) ? studentsData : studentsData ? [studentsData] : [])
+          .filter(u => u.role === "student")
+          .sort((a, b) => a.name.localeCompare(b.name));
+        businessArr = (Array.isArray(businessData) ? businessData : businessData ? [businessData] : [])
+          .filter(u => u.role === "business")
+          .sort((a, b) => a.name.localeCompare(b.name));
+        healthData = health;
+        adminSettingsData = adminSettings;
+      } else if (userRole === "business" && userId) {
+        // Business user: fetch only own business user
+        const res = await fetch(`/api/admin/users?role=business&id=${userId}`, { headers: { 'x-admin-auth': 'true' } });
+        const data = await res.json();
+        businessArr = Array.isArray(data) ? data : data ? [data] : [];
+        // No students for business user
+        studentsArr = [];
+      } else if (userRole === "student" && userId) {
+        // Student user: fetch only own student user
+        const res = await fetch(`/api/admin/users?role=student&id=${userId}`, { headers: { 'x-admin-auth': 'true' } });
+        const data = await res.json();
+        studentsArr = Array.isArray(data) ? data : data ? [data] : [];
+        businessArr = [];
+      }
+      setStudents(studentsArr);
+      setBusinessUsers(businessArr);
+      if (adminSettingsData) {
+        setAdminSettings({
+          username: adminSettingsData.username || "",
+          name: adminSettingsData.name || "",
+          email: adminSettingsData.email || "",
+          timeFormat: adminSettingsData.timeFormat || "24"
+        });
+      }
+      if (healthData) setSystemHealth(healthData);
+      calculateGrowthAndCharts(studentsArr, businessArr);
+    } catch (error) {
+      console.error("Error fetching users:", error);
+    } finally {
+      if (!options?.silent) setLoading(false);
+    }
+  }, [calculateGrowthAndCharts, session]);
 
+  // --- EFFECT HOOKS ---
+  // Removed effect for fetchReportSummary (function not defined)
   useEffect(() => {
     const stored = localStorage.getItem("adminReminders");
     if (stored) {
@@ -296,347 +505,28 @@ export default function AdminPage() {
   useEffect(() => {
     if (!remindersLoaded) return;
     localStorage.setItem("adminReminders", JSON.stringify(reminders));
-  }, [reminders]);
+  }, [reminders, remindersLoaded]);
+
 
   useEffect(() => {
-    if (activeSection !== "tasks") return;
-    fetchTasks({ silent: true });
-    const interval = setInterval(() => {
-      fetchTasks({ silent: true });
-    }, 10000);
-    return () => clearInterval(interval);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeSection]);
+    fetchUsers();
 
-  useEffect(() => {
-    if (activeSection !== "overview") return;
-    fetchActivities({ silent: true });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeSection]);
-
-  useEffect(() => {
-    if (activeSection !== "reports") return;
-    if (reportForm.type !== "activities") return;
-    fetchActivities({ silent: true });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeSection, reportForm.type]);
-
-  useEffect(() => {
-    if (activeSection !== "announcements") return;
-    fetchAnnouncements();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeSection]);
-
-  // Simple in-memory cache for session
-  const apiCache: Record<string, any> = {};
-
-  const fetchUsers = async (options?: { silent?: boolean }) => {
-    try {
-      if (!options?.silent) {
-        setLoading(true);
-      }
-      // Use cache if available
-      if (apiCache.users && apiCache.business && apiCache.health && apiCache.adminSettings) {
-        setStudents(apiCache.users);
-        setBusinessUsers(apiCache.business);
-        setSystemHealth(apiCache.health);
-        setAdminSettings(apiCache.adminSettings);
-        calculateGrowthAndCharts(apiCache.users, apiCache.business);
-        if (!options?.silent) setLoading(false);
-        return;
-      }
-      // Fetch students, business users, and settings in parallel
-      const [studentsRes, businessRes, healthRes, adminSettingsRes] = await Promise.all([
-        fetch("/api/users?role=student"),
-        fetch("/api/users?role=business"),
-        fetch("/api/system-health"),
-        fetch("/api/admin/settings"),
-      ]);
-      const [studentsData, businessData, healthData, adminSettingsData] = await Promise.all([
-        studentsRes.json(),
-        businessRes.json(),
-        healthRes.ok ? healthRes.json() : Promise.resolve(null),
-        adminSettingsRes.ok ? adminSettingsRes.json() : Promise.resolve(null)
-      ]);
-      // Cache responses
-      apiCache.users = studentsData;
-      apiCache.business = businessData;
-      apiCache.health = healthData;
-      apiCache.adminSettings = adminSettingsData;
-      setStudents(studentsData);
-      setBusinessUsers(businessData);
-      if (adminSettingsData) {
-        setAdminSettings({
-          username: adminSettingsData.username || "",
-          name: adminSettingsData.name || "",
-          email: adminSettingsData.email || "",
-          timeFormat: adminSettingsData.timeFormat || "24"
+    let isMounted = true;
+    const fetchActivities = () => {
+      fetch("/api/activities")
+        .then(res => res.json())
+        .then(data => {
+          if (isMounted) setActivities(Array.isArray(data) ? data : []);
         });
-      }
-      if (healthData) {
-        setSystemHealth(healthData);
-      }
-      // Calculate growth percentages and chart data
-      calculateGrowthAndCharts(studentsData, businessData);
-    } catch (error) {
-      console.error("Error fetching users:", error);
-    } finally {
-      if (!options?.silent) {
-        setLoading(false);
-      }
-    }
-  };
+    };
+    fetchActivities();
+    const interval = setInterval(fetchActivities, 10000); // 10 seconds
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
+  }, [fetchUsers]);
 
-  const fetchActivities = async (options?: { silent?: boolean }) => {
-    try {
-      if (!options?.silent) {
-        setActivitiesLoading(true);
-      }
-      const response = await fetch("/api/activities");
-      const data = response.ok ? await response.json() : [];
-      setActivities(Array.isArray(data) ? data : []);
-    } catch (error) {
-      console.error("Error fetching activities:", error);
-      setActivities([]);
-    } finally {
-      if (!options?.silent) {
-        setActivitiesLoading(false);
-      }
-    }
-  };
-
-  // Removed unused: fetchLoginEvents
-
-  const fetchAnnouncements = async (options?: { silent?: boolean }) => {
-    try {
-      if (!options?.silent) {
-        setAnnouncementsLoading(true);
-      }
-      const response = await fetch("/api/announcements");
-      const data = response.ok ? await response.json() : [];
-      setAnnouncements(Array.isArray(data) ? data : []);
-    } catch (error) {
-      console.error("Error fetching announcements:", error);
-      setAnnouncements([]);
-    } finally {
-      if (!options?.silent) {
-        setAnnouncementsLoading(false);
-      }
-    }
-  };
-
-  const fetchTasks = async (options?: { silent?: boolean }) => {
-    try {
-      if (!options?.silent) {
-        setTasksLoading(true);
-      }
-      const [tasksResponse, usersResponse] = await Promise.all([
-        fetch("/api/tasks"),
-        fetch("/api/users")
-      ]);
-      const tasksData = tasksResponse.ok ? await tasksResponse.json() : [];
-      const usersData = usersResponse.ok ? await usersResponse.json() : [];
-
-      const adminIds = new Set(
-        (Array.isArray(usersData) ? usersData : [])
-          .filter((user: { role?: string; _id?: string }) => user.role === "admin" && user._id)
-          .map((user: { _id: string }) => user._id)
-      );
-
-      const filteredTasks = (Array.isArray(tasksData) ? tasksData : []).filter((task: { userId?: string }) =>
-        task.userId ? adminIds.has(task.userId) : false
-      );
-
-      setTasks(filteredTasks);
-    } catch (error) {
-      console.error("Error fetching tasks:", error);
-      setTasks([]);
-    } finally {
-      if (!options?.silent) {
-        setTasksLoading(false);
-      }
-    }
-  };
-
-  const fetchReportSummary = async (filters: typeof reportFilters) => {
-    try {
-      setReportLoading(true);
-      const params = new URLSearchParams();
-      if (filters.startDate) params.set("start", filters.startDate);
-      if (filters.endDate) params.set("end", filters.endDate);
-      if (filters.role !== "all") params.set("role", filters.role);
-      if (filters.status !== "all") params.set("status", filters.status);
-      if (filters.sessionUserId !== "all") params.set("sessionUserId", filters.sessionUserId);
-      if (filters.sessionStartDate) params.set("sessionStart", filters.sessionStartDate);
-      if (filters.sessionEndDate) params.set("sessionEnd", filters.sessionEndDate);
-      if (filters.activityUserId !== "all") params.set("activityUserId", filters.activityUserId);
-      if (filters.activityStartDate) params.set("activityStart", filters.activityStartDate);
-      if (filters.activityEndDate) params.set("activityEnd", filters.activityEndDate);
-      if (filters.search.trim()) params.set("search", filters.search.trim());
-
-      const res = await fetch(`/api/reports/summary?${params.toString()}`);
-      const data = await res.json();
-      setReportSummary(data);
-    } catch (error) {
-      console.error("Error fetching report summary:", error);
-    } finally {
-      setReportLoading(false);
-    }
-  };
-
-  const getMaxValue = (values: Record<string, number>) => {
-    const list = Object.values(values || {});
-    return list.length ? Math.max(...list, 0) : 0;
-  };
-
-  const getBarWidth = (value: number, max: number) => {
-    if (!max) return "0%";
-    return `${Math.min(100, Math.round((value / max) * 100))}%`;
-  };
-
-  // Removed unused: getLoginTrend
-
-  const buildPieGradient = (values: Record<string, number>, colors: string[]) => {
-    const entries = Object.entries(values || {});
-    const total = entries.reduce((sum, [, value]) => sum + value, 0);
-    if (!total) {
-      return "conic-gradient(#e2e8f0 0deg, #e2e8f0 360deg)";
-    }
-    let start = 0;
-    const segments = entries.map(([, value], index) => {
-      const angle = (value / total) * 360;
-      const end = start + angle;
-      const color = colors[index % colors.length];
-      const segment = `${color} ${start}deg ${end}deg`;
-      start = end;
-      return segment;
-    });
-    return `conic-gradient(${segments.join(", ")})`;
-  };
-
-  const calculateGrowthAndCharts = (studentsData: User[], businessData: User[]) => {
-    // Calculate users created in last 7 days vs previous 7 days
-    const now = new Date();
-    const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-    const fourteenDaysAgo = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000);
-
-    // Students growth
-    const recentStudents = studentsData.filter(s => s.createdAt && new Date(s.createdAt) >= sevenDaysAgo).length;
-    const previousStudents = studentsData.filter(s => {
-      if (!s.createdAt) return false;
-      const date = new Date(s.createdAt);
-      return date >= fourteenDaysAgo && date < sevenDaysAgo;
-    }).length;
-    
-    let studentsGrowth = 0;
-    if (previousStudents > 0) {
-      studentsGrowth = ((recentStudents - previousStudents) / previousStudents) * 100;
-    } else if (recentStudents > 0) {
-      studentsGrowth = 100;
-    }
-
-    // Business users growth
-    const recentBusiness = businessData.filter(b => b.createdAt && new Date(b.createdAt) >= sevenDaysAgo).length;
-    const previousBusiness = businessData.filter(b => {
-      if (!b.createdAt) return false;
-      const date = new Date(b.createdAt);
-      return date >= fourteenDaysAgo && date < sevenDaysAgo;
-    }).length;
-    
-    let businessGrowth = 0;
-    if (previousBusiness > 0) {
-      businessGrowth = ((recentBusiness - previousBusiness) / previousBusiness) * 100;
-    } else if (recentBusiness > 0) {
-      businessGrowth = 100;
-    }
-
-    // Tasks growth
-    const totalTasks = studentsData.reduce((sum, s) => sum + (s.taskCount || 0), 0) + 
-                       businessData.reduce((sum, b) => sum + (b.taskCount || 0), 0);
-    const totalUsers = studentsData.length + businessData.length;
-    const avgTasksPerUser = totalUsers > 0 ? totalTasks / totalUsers : 0;
-    const tasksGrowth = totalUsers > 0 ? Math.min((avgTasksPerUser * 20), 50) : 0;
-
-    // Total users growth
-    const recentTotalUsers = recentStudents + recentBusiness;
-    const previousTotalUsers = previousStudents + previousBusiness;
-    let totalUsersGrowth = 0;
-    if (previousTotalUsers > 0) {
-      totalUsersGrowth = ((recentTotalUsers - previousTotalUsers) / previousTotalUsers) * 100;
-    } else if (recentTotalUsers > 0) {
-      totalUsersGrowth = 100;
-    }
-
-    setStats({
-      studentsGrowth: Math.round(studentsGrowth * 10) / 10,
-      businessGrowth: Math.round(businessGrowth * 10) / 10,
-      tasksGrowth: Math.round(tasksGrowth * 10) / 10,
-      totalUsersGrowth: Math.round(totalUsersGrowth * 10) / 10,
-      previousStudents,
-      previousBusiness,
-      previousTasks: 0
-    });
-
-    // Calculate chart data - last 3 days
-    const daysData = [];
-    for (let i = 2; i >= 0; i--) {
-      const dayDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i);
-      const nextDayDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i + 1);
-      const dayName = dayDate.toLocaleDateString('default', { month: 'short', day: 'numeric' });
-      
-      const studentsCount = studentsData.filter(s => {
-        if (!s.createdAt) return false;
-        const date = new Date(s.createdAt);
-        return date >= dayDate && date < nextDayDate;
-      }).length;
-      
-      const businessCount = businessData.filter(b => {
-        if (!b.createdAt) return false;
-        const date = new Date(b.createdAt);
-        return date >= dayDate && date < nextDayDate;
-      }).length;
-      
-      daysData.push({
-        month: dayName,
-        students: studentsCount,
-        business: businessCount
-      });
-    }
-    
-    // Calculate cumulative totals
-    let cumulativeStudents = 0;
-    let cumulativeBusiness = 0;
-    const cumulativeData = daysData.map(day => {
-      cumulativeStudents += day.students;
-      cumulativeBusiness += day.business;
-      return {
-        month: day.month,
-        students: cumulativeStudents,
-        business: cumulativeBusiness
-      };
-    });
-    
-    setChartData({
-      userGrowth: cumulativeData,
-      taskDistribution: {
-        pending: Math.floor(totalTasks * 0.7),
-        completed: Math.floor(totalTasks * 0.3)
-      }
-    });
-  };
-
-
-
-  const menuItems = [
-    { id: "overview", label: "Overview", icon: <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg> },
-    { id: "students", label: "Students", icon: <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" /></svg> },
-    { id: "business", label: "Business Users", icon: <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg> },
-    { id: "announcements", label: "Announcements", icon: <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5.882V19.24a1.76 1.76 0 01-3.417.592l-2.147-6.15M18 13a3 3 0 100-6M5.436 13.683A4.001 4.001 0 017 6h1.832c4.1 0 7.625-1.234 9.168-3v14c-1.543-1.766-5.067-3-9.168-3H7a3.988 3.988 0 01-1.564-.317z" /></svg> },
-    { id: "tasks", label: "Tasks", icon: <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5h6m-6 4h6m-6 4h6m-7 7h8a2 2 0 002-2V4a2 2 0 00-2-2H8a2 2 0 00-2 2v16a2 2 0 002 2z" /></svg> },
-    { id: "timetable", label: "Timetables", icon: <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg> },
-    { id: "reports", label: "Reports", icon: <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg> },
-    { id: "settings", label: "Settings", icon: <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg> }
-  ];
 
   const handleLogout = async () => {
     await signOut({ redirect: false });
@@ -707,6 +597,7 @@ export default function AdminPage() {
       username: "",
       email: "",
       name: "",
+      phone: "",
       role: "student",
       password: ""
     });
@@ -719,6 +610,7 @@ export default function AdminPage() {
       username: "",
       email: "",
       name: "",
+      phone: "",
       role: "business",
       password: ""
     });
@@ -726,59 +618,7 @@ export default function AdminPage() {
     setShowAddUserModal(true);
   };
   
-  const handleCreateUser = async () => {
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    const nextErrors: { [key: string]: string } = {};
-    if (!newUserForm.username.trim()) nextErrors.username = "Username is required";
-    if (!newUserForm.name.trim()) nextErrors.name = "Name is required";
-    if (!newUserForm.email.trim()) nextErrors.email = "Email is required";
-    if (newUserForm.email && !emailRegex.test(newUserForm.email)) nextErrors.email = "Enter a valid email";
-    if (!newUserForm.password) nextErrors.password = "Password is required";
-    if (newUserForm.password && newUserForm.password.length < 6) nextErrors.password = "Password must be at least 6 characters";
-    if (!newUserForm.role) nextErrors.role = "Role is required";
-    if (Object.keys(nextErrors).length > 0) {
-      setNewUserErrors(nextErrors);
-      return;
-    }
-    setNewUserErrors({});
-  
-    try {
-      const response = await fetch("/api/users", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(newUserForm)
-      });
-  
-      if (response.ok) {
-        const data = await response.json();
-        alert("User created successfully!");
-        const newUser: User = {
-          _id: data.id,
-          username: newUserForm.username,
-          email: newUserForm.email,
-          name: newUserForm.name,
-          role: newUserForm.role,
-          taskCount: 0,
-          expenseTotal: 0,
-          status: "Active",
-          createdAt: new Date().toISOString()
-        };
-        if (newUser.role === "business") {
-          setBusinessUsers((prev) => [newUser, ...prev]);
-        } else {
-          setStudents((prev) => [newUser, ...prev]);
-        }
-        setShowAddUserModal(false);
-        fetchUsers({ silent: true });
-      } else {
-        const data = await response.json();
-        alert(data.error || "Failed to create user");
-      }
-    } catch (error) {
-      console.error("Error creating user:", error);
-      alert("Error creating user");
-    }
-  };
+  // Removed unused handleCreateUser
 
   const handleToggleUserStatus = async (user: User) => {
     const currentStatus = user.status || "Active";
@@ -792,8 +632,7 @@ export default function AdminPage() {
       });
 
       if (!response.ok) {
-        const data = await response.json();
-        alert(data.error || "Failed to update status");
+        alert("Failed to update status");
         return;
       }
 
@@ -845,8 +684,8 @@ export default function AdminPage() {
       if (response.ok) {
         setAnnouncements((prev) => prev.filter((item) => item._id !== announcementId));
       } else {
-        const data = await response.json();
-        alert(data.error || "Failed to delete announcement");
+        await response.json(); // Removed unused 'data'
+        alert("Failed to delete announcement");
       }
     } catch (error) {
       console.error("Error deleting announcement:", error);
@@ -891,19 +730,15 @@ export default function AdminPage() {
       });
   
       if (response.ok) {
-        const data = await response.json();
+        await response.json(); // Removed unused 'data'
         alert(editingAnnouncement ? "Announcement updated successfully!" : "Announcement created successfully!");
         setShowAnnouncementModal(false);
         setEditingAnnouncement(null);
-        if (editingAnnouncement) {
-          setAnnouncements((prev) => prev.map((item) => (item._id === data._id ? data : item)));
-        } else {
-          setAnnouncements((prev) => [data, ...prev]);
-        }
+        // Always refresh announcements from API after create/update
+        fetchAnnouncements();
         fetchUsers({ silent: true });
       } else {
-        const data = await response.json();
-        alert(data.error || "Failed to create announcement");
+        alert("Failed to create announcement");
       }
     } catch (error) {
       console.error("Error creating announcement:", error);
@@ -941,25 +776,21 @@ export default function AdminPage() {
   };
 
   const handleExportReportsExcel = () => {
-    if (!reportSummary) return;
+    if (!reportSummary || !reportSummary.users) return;
     const rows: string[][] = [
       ["Report Section", "Metric", "Value"],
       ["User Management", "Total Users", String(reportSummary.users.total)],
       ["User Management", "New Registrations", String(reportSummary.users.newRegistrations)],
       ["User Management", "Active Users", String(reportSummary.users.byStatus.Active || 0)],
       ["User Management", "Inactive Users", String(reportSummary.users.byStatus.Inactive || 0)],
-      ["Timetable", "Total Timetables", String(reportSummary.timetable.total)],
-      ["Timetable", "Active Timetables", String(reportSummary.timetable.active)],
-      ["Timetable", "Archived Timetables", String(reportSummary.timetable.archived)],
-      ["Timetable", "Conflicts", String(reportSummary.timetable.conflicts)],
-      ["Approvals", "Submitted", String(reportSummary.approvals.submitted)],
-      ["Approvals", "Approved", String(reportSummary.approvals.approved)],
-      ["Approvals", "Rejected", String(reportSummary.approvals.rejected)],
-      ["Approvals", "Pending", String(reportSummary.approvals.pending)],
-      ["Notifications", "Sent", String(reportSummary.notifications.sent)],
-      ["Activity", "Login Events", String(reportSummary.activity.logins)],
-      ["Activity", "Admin Actions", String(reportSummary.activity.adminActions)],
-      ["Activity", "Failed Logins", String(reportSummary.activity.failedLogins)]
+      ...(reportSummary.activity ? [
+        ["Activity", "Login Events", String(reportSummary.activity.logins || 0)],
+        ["Activity", "Admin Actions", String(reportSummary.activity.adminActions || 0)],
+        ["Activity", "Failed Logins", String(reportSummary.activity.failedLogins || 0)]
+      ] : []),
+      ...(reportSummary.announcements ? [
+        ["Announcements", "Total Announcements", String(reportSummary.announcements.total || 0)]
+      ] : [])
     ];
 
     downloadCsv("stpms-reports.csv", rows);
@@ -973,7 +804,107 @@ export default function AdminPage() {
     window.print();
   };
 
-  const handleGenerateReport = () => {
+  // --- AUDIT LOGS STATE ---
+  const [auditLogsData] = useState<any[]>([]);
+
+  // ...existing code...
+  const reportSummary = useMemo((): {
+    users?: { total: number; byStatus: Record<string, number>; byRole: Record<string, number>; newRegistrations: number };
+    activity?: { logins: number; adminActions: number; failedLogins: number; loginsByRole: Record<string, number> };
+    announcements?: { total: number; recent: Announcement[] };
+    sessions?: { count: number; avgDurationMinutes: number | null };
+    auditLogs: any[];
+  } => {
+    let filtered: any[] = [];
+    const now = new Date();
+    const rangeDays = reportForm.range === "all" ? null : Number(reportForm.range);
+    const cutoff = rangeDays ? new Date(now.getTime() - rangeDays * 24 * 60 * 60 * 1000) : null;
+    if (reportForm.type === "users") {
+      filtered = cutoff
+        ? [...students, ...businessUsers].filter((u) => {
+            if (!u.createdAt || !cutoff) return false;
+            const created = new Date(u.createdAt);
+            return rangeDays ? created >= cutoff : true;
+          })
+        : [...students, ...businessUsers];
+      const byRole = filtered.reduce((acc, u) => {
+        acc[u.role] = (acc[u.role] || 0) + 1;
+        return acc;
+      }, {} as Record<string, number>);
+      return {
+        users: {
+          total: filtered.length,
+          byStatus: filtered.reduce((acc, u) => {
+            const status = (u.status || "Inactive").toLowerCase() === "active" ? "Active" : "Inactive";
+            acc[status] = (acc[status] || 0) + 1;
+            return acc;
+          }, {} as Record<string, number>),
+          byRole,
+          newRegistrations: filtered.filter(u => {
+            if (!u.createdAt || !cutoff) return false;
+            const created = new Date(u.createdAt);
+            return rangeDays ? created >= cutoff : true;
+          }).length
+        },
+        auditLogs: []
+      };
+    }
+    if (reportForm.type === "activities") {
+      // Use loginEvents for login events, auditLogsData for failed logins/admin actions
+      const failedLoginActions = [
+        'auth.failed_login',
+        'auth.inactive_login',
+        'login_failed',
+        'login.fail',
+        'login_failed',
+      ];
+      const filteredAuditLogs = cutoff
+        ? auditLogsData.filter((log: any) => log.createdAt && new Date(log.createdAt) >= cutoff)
+        : auditLogsData || [];
+      const filteredLoginEvents = cutoff
+        ? loginEvents.filter((e: any) => e.createdAt && new Date(e.createdAt) >= cutoff)
+        : loginEvents || [];
+      const failedLogins = filteredAuditLogs.filter((log: any) => {
+        if (!log.action) return false;
+        const action = log.action.toLowerCase();
+        return failedLoginActions.some(failAction => action === failAction || action.includes(failAction));
+      }).length;
+      const adminActions = filteredAuditLogs.filter((log: any) => log.actorRole === 'admin').length;
+      const logins = filteredLoginEvents.length;
+      const loginsByRole = filteredLoginEvents.reduce((acc: Record<string, number>, e: any) => {
+        if (e.role) acc[e.role] = (acc[e.role] || 0) + 1;
+        return acc;
+      }, {} as Record<string, number>);
+      return {
+        activity: {
+          logins,
+          adminActions,
+          failedLogins,
+          loginsByRole
+        },
+        auditLogs: filteredAuditLogs
+      };
+    }
+    if (reportForm.type === "announcements") {
+      const filtered = cutoff
+        ? announcements.filter((a) => {
+            if (!a.createdAt || !cutoff) return false;
+            return new Date(a.createdAt) >= cutoff;
+          })
+        : announcements;
+      return {
+        announcements: {
+          total: filtered.length,
+          recent: filtered.slice(-10)
+        },
+        auditLogs: []
+      };
+    }
+    return { auditLogs: [] };
+  }, [students, businessUsers, announcements, reportForm, auditLogsData, loginEvents]);
+
+  const handleGenerateReport = async () => {
+    setReportLoading(true);
     const validTypes = ["users", "activities", "announcements"];
     const validRanges = ["7", "30", "90", "all"];
     const nextErrors: { [key: string]: string } = {};
@@ -981,66 +912,148 @@ export default function AdminPage() {
     if (!validRanges.includes(reportForm.range)) nextErrors.range = "Select a valid range";
     if (Object.keys(nextErrors).length > 0) {
       setReportErrors(nextErrors);
+      setReportLoading(false);
       return;
     }
     setReportErrors({});
 
-    const now = new Date();
-    const rangeDays = reportForm.range === "all" ? null : Number(reportForm.range);
-    const cutoff = rangeDays ? new Date(now.getTime() - rangeDays * 24 * 60 * 60 * 1000) : null;
+    // Fetch latest data from backend for reports
+    try {
+      let usersData = [];
+      let businessData = [];
+      let announcementsData = [];
+      let auditLogsData = [];
+      // Always fetch audit logs for activity/audit reports
+      const auditLogsRes = await fetch(`/api/audit-logs?range=${reportForm.range}`);
+      auditLogsData = Array.isArray(await auditLogsRes.json()) ? await auditLogsRes.json() : [];
 
-    if (reportForm.type === "users") {
-      const combinedUsers = [...students, ...businessUsers];
-      const filtered = cutoff
-        ? combinedUsers.filter((u) => u.createdAt && new Date(u.createdAt) >= cutoff)
-        : combinedUsers;
-      const rows = [
-        ["Name", "Username", "Email", "Role", "Status", "Created At"],
-        ...filtered.map((u) => [
-          u.name || "",
-          u.username || "",
-          u.email || "",
-          u.role || "",
-          u.status || "",
-          u.createdAt ? new Date(u.createdAt).toLocaleString() : ""
-        ])
-      ];
-      downloadCsv(`users-report-${Date.now()}.csv`, rows);
+      if (reportForm.type === "users") {
+        const [studentsRes, businessRes] = await Promise.all([
+          fetch("/api/admin/users?role=student", { headers: { 'x-admin-auth': 'true' } }),
+          fetch("/api/admin/users?role=business", { headers: { 'x-admin-auth': 'true' } })
+        ]);
+        usersData = Array.isArray(await studentsRes.json()) ? await studentsRes.json() : [];
+        businessData = Array.isArray(await businessRes.json()) ? await businessRes.json() : [];
+      }
+      if (reportForm.type === "activities") {
+        const activitiesRes = await fetch("/api/activities");
+        void (Array.isArray(await activitiesRes.json()) ? await activitiesRes.json() : []);
+      }
+      if (reportForm.type === "announcements") {
+        const announcementsRes = await fetch("/api/announcements?audience=all");
+        announcementsData = Array.isArray(await announcementsRes.json()) ? await announcementsRes.json() : [];
+      }
+
+      // Use the same logic as memoizedReport, but with fresh data
+      // Access reportForm from state
+      const currentReportForm = reportForm;
+      const now = new Date();
+      const rangeDays = currentReportForm.range === "all" ? null : Number(currentReportForm.range);
+      const cutoff = rangeDays ? new Date(now.getTime() - rangeDays * 24 * 60 * 60 * 1000) : null;
+      let summary: any = {};
+      if (currentReportForm.type === "users") {
+        const combinedUsers = [...usersData, ...businessData];
+        const filtered = cutoff
+          ? combinedUsers.filter((u) => {
+              if (!u.createdAt || !cutoff) return false;
+              return new Date(u.createdAt) >= cutoff;
+            })
+          : combinedUsers;
+        const byStatus = filtered.reduce((acc, u) => {
+          const status = (u.status || "Inactive").toLowerCase() === "active" ? "Active" : "Inactive";
+          acc[status] = (acc[status] || 0) + 1;
+          return acc;
+        }, {} as Record<string, number>);
+        const byRole = filtered.reduce((acc, u) => {
+          acc[u.role] = (acc[u.role] || 0) + 1;
+          return acc;
+        }, {} as Record<string, number>);
+        summary = {
+          users: {
+            total: filtered.length,
+            byStatus,
+            byRole,
+            newRegistrations: filtered.filter(u => {
+              if (!u.createdAt || !cutoff) return false;
+              const created = new Date(u.createdAt);
+              return rangeDays ? created >= cutoff : true;
+            }).length
+          },
+          auditLogs: auditLogsData
+        };
+      } else if (reportForm.type === "activities") {
+        // Use auditLogsData for admin actions and failed logins, loginEvents for login history
+        // loginEvents is available in component state, but for reports, fetch fresh login events
+        let loginEventsData = [];
+        try {
+          const loginEventsRes = await fetch(`/api/login-events`);
+          loginEventsData = Array.isArray(await loginEventsRes.json()) ? await loginEventsRes.json() : [];
+        } catch (err) {
+          // Optionally log error
+        }
+
+        // Filter by cutoff (make permanent, match useMemo logic)
+        const filteredLoginEvents = cutoff
+          ? loginEventsData.filter((e: { createdAt?: string }) => e.createdAt && new Date(e.createdAt) >= cutoff)
+          : loginEventsData;
+        const filteredAuditLogs = cutoff
+          ? auditLogsData.filter((log: { createdAt?: string }) => log.createdAt && new Date(log.createdAt) >= cutoff)
+          : auditLogsData;
+
+        // Failed logins: audit log action matches any known failed login action
+        const failedLoginActions = [
+          'auth.failed_login',
+          'auth.inactive_login',
+          'login_failed',
+          'login.fail',
+          'login_failed',
+        ];
+        const failedLogins = filteredAuditLogs.filter((log: { action?: string }) => {
+          if (!log.action) return false;
+          const action = log.action.toLowerCase();
+          return failedLoginActions.some(failAction => action === failAction || action.includes(failAction));
+        }).length;
+        // Admin actions: audit log actorRole === 'admin'
+        const adminActions = filteredAuditLogs.filter((log: { actorRole?: string }) => log.actorRole === 'admin').length;
+        // Logins: count of login events
+        const logins = filteredLoginEvents.length;
+        // Logins by role
+        const loginsByRole = filteredLoginEvents.reduce((acc: Record<string, number>, e: { role?: string }) => {
+          if (e.role) acc[e.role] = (acc[e.role] || 0) + 1;
+          return acc;
+        }, {} as Record<string, number>);
+
+        summary = {
+          activity: {
+            logins,
+            adminActions,
+            failedLogins,
+            loginsByRole
+          },
+          auditLogs: filteredAuditLogs
+        };
+      } else if (reportForm.type === "announcements") {
+        const filtered = cutoff
+          ? announcementsData.filter((a: AnnouncementData) => {
+              if (!a.createdAt || !cutoff) return false;
+              return new Date(a.createdAt) >= cutoff;
+            })
+          : announcementsData;
+        summary = {
+          announcements: {
+            total: filtered.length,
+            recent: filtered.slice(-10)
+          },
+          auditLogs: auditLogsData
+        };
+      }
+      localStorage.setItem("adminReportSummary", JSON.stringify(summary));
+      setShowReportModal(false);
+    } catch (err) {
+      setReportErrors({ type: "Failed to fetch report data" });
+    } finally {
+      setReportLoading(false);
     }
-
-    if (reportForm.type === "activities") {
-      const filtered = cutoff
-        ? activities.filter((a) => a.time && new Date(a.time) >= cutoff)
-        : activities;
-      const rows = [
-        ["User", "Action", "Type", "Time"],
-        ...filtered.map((a) => [
-          a.user || "",
-          a.action || "",
-          a.type || "",
-          a.time ? new Date(a.time).toLocaleString() : ""
-        ])
-      ];
-      downloadCsv(`activity-report-${Date.now()}.csv`, rows);
-    }
-
-    if (reportForm.type === "announcements") {
-      const filtered = cutoff
-        ? announcements.filter((a) => a.createdAt && new Date(a.createdAt) >= cutoff)
-        : announcements;
-      const rows = [
-        ["Title", "Message", "Audience", "Created At"],
-        ...filtered.map((a) => [
-          a.title || "",
-          a.body || "",
-          a.audience?.join("/") || "",
-          a.createdAt ? new Date(a.createdAt).toLocaleString() : ""
-        ])
-      ];
-      downloadCsv(`announcements-report-${Date.now()}.csv`, rows);
-    }
-
-    setShowReportModal(false);
   };
 
   const handleSaveAdminSettings = async () => {
@@ -1181,12 +1194,11 @@ export default function AdminPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ auditLogId: log._id })
       });
-      const data = await response.json();
-      if (!response.ok) {
-        alert(data.error || "Failed to create task");
-        return;
+      if (response.ok) {
+        // Always refresh announcements from API after delete
+        fetchAnnouncements();
       }
-      fetchTasks({ silent: true });
+
       setActiveSection("tasks");
       alert("Task created for request");
     } catch (error) {
@@ -1403,17 +1415,12 @@ export default function AdminPage() {
     return searchable.includes(normalizedBusinessSearch);
   });
 
-  const activityWindowStart = new Date();
-  if (activityRange === "today") {
-    activityWindowStart.setHours(0, 0, 0, 0);
-  } else {
-    const days = Number(activityRange);
-    activityWindowStart.setDate(activityWindowStart.getDate() - days);
-  }
+  // Filter login events by selected month
+  const selectedMonth = Number(activityRange);
   const activityCounts = loginEvents.reduce(
     (acc, activity) => {
       const activityTime = activity.createdAt ? new Date(activity.createdAt) : null;
-      if (!activityTime || activityTime < activityWindowStart) return acc;
+      if (!activityTime || activityTime.getMonth() + 1 !== selectedMonth) return acc;
       if (activity.role === "student") acc.student += 1;
       if (activity.role === "business") acc.business += 1;
       return acc;
@@ -1430,11 +1437,15 @@ export default function AdminPage() {
           ? "Students"
           : "Business";
 
-  const reportUserRoleMax = getMaxValue(reportSummary?.users.byRole || {});
-
-
+  const reportUserRoleMax = getMaxValue(reportSummary?.users?.byRole || {});
   return (
-    <div className="flex h-screen overflow-hidden bg-slate-50">
+  <div className="flex h-screen overflow-hidden bg-slate-50">
+    {/* Show loading spinner overlay but keep table visible */}
+    {loading && (
+      <div className="fixed inset-0 z-40 flex items-center justify-center bg-black bg-opacity-10 pointer-events-none">
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-600"></div>
+      </div>
+    )}
       {selectedAuditLog && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
@@ -1676,6 +1687,23 @@ export default function AdminPage() {
                 )}
               </div>
               <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Phone Number</label>
+                <input
+                  type="tel"
+                  value={newUserForm.phone}
+                  onChange={(e) => {
+                    setNewUserForm({ ...newUserForm, phone: e.target.value });
+                    setNewUserErrors((prev) => ({ ...prev, phone: "" }));
+                  }}
+                  className={`w-full rounded-lg border px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 ${
+                    newUserErrors.phone ? "border-red-400" : "border-slate-300"
+                  }`}
+                />
+                {newUserErrors.phone && (
+                  <p className="mt-1 text-xs text-red-600">{newUserErrors.phone}</p>
+                )}
+              </div>
+              <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">Role</label>
                 <select
                   value={newUserForm.role}
@@ -1708,24 +1736,22 @@ export default function AdminPage() {
                     newUserErrors.password ? "border-red-400" : "border-slate-300"
                   }`}
                 />
-                {newUserErrors.password && (
-                  <p className="mt-1 text-xs text-red-600">{newUserErrors.password}</p>
-                )}
               </div>
-            </div>
-            <div className="flex gap-3 border-t border-slate-200 px-6 py-4">
-              <button
-                onClick={() => setShowAddUserModal(false)}
-                className="flex-1 rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleCreateUser}
-                className="flex-1 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
-              >
-                Create User
-              </button>
+              {/* Responsive button row */}
+              <div className="flex flex-col sm:flex-row gap-3 border-t border-slate-200 pt-4">
+                <button
+                  onClick={() => setShowAddUserModal(false)}
+                  className="w-full sm:w-1/2 rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                >
+                  Close
+                </button>
+                <button
+                  onClick={handleCreateUser}
+                  className="w-full sm:w-1/2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+                >
+                  Save
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -1981,6 +2007,7 @@ export default function AdminPage() {
         </div>
 
         {/* Navigation */}
+
         <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-4">
           {menuItems.map((item) => (
             <button
@@ -1999,6 +2026,61 @@ export default function AdminPage() {
               <span>{item.label}</span>
             </button>
           ))}
+
+          {/* Notifications button for mobile/small screens */}
+          <div className="block sm:hidden mt-4">
+            <button
+              onClick={() => setShowNotifications((prev) => !prev)}
+              className="flex w-full items-center gap-3 rounded-lg border border-slate-300 bg-white px-4 py-3 text-left text-sm font-medium text-slate-700 hover:bg-slate-50 sm:flex sm:items-center sm:gap-2 lg:px-4"
+              style={{ minHeight: 48 }}
+            >
+              <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" /></svg>
+              <span>Notifications</span>
+              {dueReminders.length > 0 && (
+                <span className="ml-2 rounded-full bg-white px-2 py-0.5 text-[10px] font-semibold text-blue-700">
+                  {dueReminders.length}
+                </span>
+              )}
+            </button>
+            {showNotifications && (
+              <div className="mt-2 w-full rounded-xl border border-slate-200 bg-white p-3 shadow-lg text-slate-900 animate-fade-in">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-sm font-semibold">Notifications</h4>
+                  <button
+                    onClick={() => setShowNotifications(false)}
+                    className="text-xs text-slate-500 hover:text-slate-700"
+                  >
+                    Close
+                  </button>
+                </div>
+                {pendingTaskCount > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActiveSection("tasks");
+                      setShowNotifications(false);
+                    }}
+                    className="mt-3 w-full rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-left text-xs font-semibold text-rose-600 hover:bg-rose-100"
+                  >
+                    {pendingTaskCount} pending tasks
+                  </button>
+                )}
+                <div className="mt-3 space-y-2 text-xs">
+                  {dueReminders.length === 0 ? (
+                    <p className="text-slate-500">No reminders due right now.</p>
+                  ) : (
+                    dueReminders.map((reminder) => (
+                      <div key={reminder.id} className="rounded-lg border border-amber-200 bg-amber-50 p-2">
+                        <p className="font-semibold text-amber-900">{reminder.title}</p>
+                        <p className="text-amber-700">{new Date(reminder.dueAt).toLocaleString()}</p>
+                        {reminder.note && <p className="mt-1 text-amber-700">{reminder.note}</p>}
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
         </nav>
 
         {/* User info */}
@@ -2141,198 +2223,150 @@ export default function AdminPage() {
 
               {/* Stats Grid */}
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                {[
-                  { 
-                    label: "Total Students", 
-                    value: loading ? "..." : (students?.length || 0).toString(), 
-                    change: stats.studentsGrowth > 0 ? `+${stats.studentsGrowth}%` : stats.studentsGrowth < 0 ? `${stats.studentsGrowth}%` : "—", 
-                    trend: stats.studentsGrowth > 0 ? "up" : stats.studentsGrowth < 0 ? "down" : "stable", 
-                    icon: "👨‍🎓" 
-                  },
-                  { 
-                    label: "Business Users", 
-                    value: loading ? "..." : (businessUsers?.length || 0).toString(), 
-                    change: stats.businessGrowth > 0 ? `+${stats.businessGrowth}%` : stats.businessGrowth < 0 ? `${stats.businessGrowth}%` : "—", 
-                    trend: stats.businessGrowth > 0 ? "up" : stats.businessGrowth < 0 ? "down" : "stable", 
-                    icon: "💼" 
-                  },
-                  { 
-                    label: "Active Users", 
-                    value: loading
-                      ? "..."
-                      : (
-                          (students?.filter((s) => (s.status || "").toLowerCase() === "active").length || 0) +
-                          (businessUsers?.filter((b) => (b.status || "").toLowerCase() === "active").length || 0)
-                        ).toString(), 
-                    change: stats.totalUsersGrowth > 0 ? `+${stats.totalUsersGrowth}%` : stats.totalUsersGrowth < 0 ? `${stats.totalUsersGrowth}%` : "—", 
-                    trend: stats.totalUsersGrowth > 0 ? "up" : stats.totalUsersGrowth < 0 ? "down" : "stable", 
-                    icon: "👥" 
-                  },
-                  { 
-                    label: "System Health", 
-                    value: loading ? "..." : `${systemHealth.score}%`, 
-                    change: systemHealth.statusLabel || "—", 
-                    trend: systemHealth.status === "operational" ? "up" : systemHealth.status === "degraded" ? "stable" : "down", 
-                    icon: "💚" 
-                  }
-                ].map((stat) => (
-                  <div
-                    key={stat.label}
-                    className="group cursor-pointer rounded-xl bg-white p-5 shadow-sm ring-1 ring-slate-200 transition hover:shadow-md hover:ring-blue-200"
-                  >
-                    <div className="flex items-center justify-between">
-                      <p className="text-sm font-medium text-slate-600">{stat.label}</p>
-                      <span className="text-2xl">{stat.icon}</span>
+                {(() => {
+                  // Removed unused safeStats
+                  return [
+                    {
+                      label: "Total Students",
+                      value: loading ? "..." : (students?.length || 0).toString(),
+                      icon: "👨‍🎓"
+                    },
+                    {
+                      label: "Business Users",
+                      value: loading ? "..." : (businessUsers?.length || 0).toString(),
+                      icon: "💼"
+                    },
+                    {
+                      label: "Active Users",
+                      value: loading
+                        ? "..."
+                        : (
+                            (students?.filter((s) => (s.status || "").toLowerCase() === "active").length || 0) +
+                            (businessUsers?.filter((b) => (b.status || "").toLowerCase() === "active").length || 0)
+                          ).toString(),
+                      icon: "👥"
+                    },
+                    {
+                      label: "System Health",
+                      value: loading || !systemHealth ? "..." : `${systemHealth?.score ?? 0}%`,
+                      icon: "💚"
+                    }
+                  ].map((stat) => (
+                    <div
+                      key={stat.label}
+                      className="group cursor-pointer rounded-xl bg-white p-5 shadow-sm ring-1 ring-slate-200 transition hover:shadow-md hover:ring-blue-200"
+                    >
+                      <div className="flex items-center justify-between">
+                        <p className="text-sm font-medium text-slate-600">{stat.label}</p>
+                        <span className="text-2xl">{stat.icon}</span>
+                      </div>
+                      <div className="mt-3 flex items-baseline gap-2">
+                        <span className="text-3xl font-bold text-slate-900">{stat.value}</span>
+                      </div>
                     </div>
-                    <div className="mt-3 flex items-baseline gap-2">
-                      <span className="text-3xl font-bold text-slate-900">{stat.value}</span>
-                      <span className={`text-xs font-semibold ${stat.trend === 'up' ? 'text-green-600' : stat.trend === 'down' ? 'text-red-600' : 'text-blue-600'}`}>
-                        {stat.change}
-                      </span>
-                    </div>
-                  </div>
-                ))}
+                  ));
+                })()}
               </div>
 
-              {/* Recent Activity */}
-              <div className="grid gap-6 lg:grid-cols-2">
-                <div className="rounded-xl bg-white p-4 shadow-sm ring-1 ring-slate-200 lg:p-6">
-                  <div className="mb-4 flex items-center justify-between">
+              {/* Recent Activity - Responsive, System Health Removed */}
+              <div className="w-full">
+                <div className="rounded-xl bg-white p-2 sm:p-4 shadow-sm ring-1 ring-slate-200 flex flex-col">
+                  <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                     <h3 className="text-lg font-semibold text-slate-900">Recent Activity</h3>
                     <button
-                      className="text-sm font-medium text-blue-600 hover:text-blue-700"
+                      className="text-sm font-medium text-blue-600 hover:text-blue-700 w-full sm:w-auto"
                       onClick={() => setShowAllActivities((prev) => !prev)}
                     >
                       {showAllActivities ? "Hide Details" : "View All →"}
                     </button>
                   </div>
-                  {activitiesLoading ? (
-                    <div className="flex items-center justify-center py-8">
-                      <div className="h-8 w-8 animate-spin rounded-full border-4 border-blue-600 border-t-transparent"></div>
-                    </div>
-                  ) : (activities?.length || 0) === 0 ? (
-                    <div className="py-8 text-center text-sm text-slate-500">
-                      No recent activities
-                    </div>
-                  ) : (
-                    <div className="space-y-3">
-                      {(showAllActivities ? activities : activities?.slice(0, 5))?.map((activity) => {
-                        const timeAgo = getTimeAgo(activity.time);
-                        return (
-                          <div key={activity.id} className="flex items-center gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
-                            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-blue-100 text-xs font-bold text-blue-700">
-                              {activity.icon}
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <p className="text-sm font-medium text-slate-900 truncate">{activity.user}</p>
-                              <p className="text-xs text-slate-600 truncate">{activity.action}</p>
-                            </div>
-                            <span className="text-xs text-slate-500 whitespace-nowrap">{timeAgo}</span>
-                          </div>
-                        );
-                      })}
-                      {showAllActivities && (activities?.length || 0) > 0 && (
-                        <div className="rounded-lg border border-slate-200 bg-white p-3 text-xs text-slate-600">
-                          <p className="font-semibold text-slate-900">Activity Details</p>
-                          <ul className="mt-2 space-y-1">
-                            {activities.map((activity) => (
-                              <li key={`detail-${activity.id}`} className="flex items-start gap-2">
-                                <span className="text-blue-600">•</span>
-                                <span>
-                                  <span className="font-medium text-slate-900">{activity.user}</span> {activity.action} — {getTimeAgo(activity.time)}
-                                </span>
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-
-                <div className="rounded-xl bg-white p-4 shadow-sm ring-1 ring-slate-200 lg:p-6">
-                  <div className="mb-4 flex items-center justify-between">
-                    <h3 className="text-lg font-semibold text-slate-900">System Health</h3>
-                    <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${systemHealth.status === "operational" ? "bg-green-100 text-green-700" : systemHealth.status === "degraded" ? "bg-amber-100 text-amber-700" : "bg-red-100 text-red-700"}`}>
-                      {systemHealth.statusLabel || "System Status"}
-                    </span>
-                  </div>
-                  <div className="space-y-4">
-                    {(loading || systemHealth.metrics.length === 0) ? (
-                      <div className="flex items-center justify-center py-8 text-sm text-slate-500">
-                        Loading system metrics...
-                      </div>
-                    ) : systemHealth.metrics.map((metric) => (
-                      <div key={metric.label}>
-                        <div className="flex items-center justify-between text-sm">
-                          <span className="text-slate-700">{metric.label}</span>
-                          <div className="flex items-center gap-2">
-                            <span className="font-semibold text-slate-900">{metric.value}</span>
-                            <span className={`h-2 w-2 rounded-full ${metric.status === "good" ? "bg-green-500" : metric.status === "warning" ? "bg-amber-500" : "bg-red-500"}`}></span>
-                          </div>
-                        </div>
-                        <div className="mt-1.5 h-2 overflow-hidden rounded-full bg-slate-100">
-                          <div
-                            className={`h-full bg-gradient-to-r ${metric.status === "good" ? "from-green-400 to-green-600" : metric.status === "warning" ? "from-amber-400 to-amber-600" : "from-red-400 to-red-600"}`}
-                            style={{ width: `${Math.min(Math.max(metric.percentage, 0), 100)}%` }}
-                          ></div>
-                        </div>
-                        <p className="mt-1 text-xs text-slate-500">Target: {metric.target}</p>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-
-              {/* Chart Examples - Mobile Responsive */}
-              <div className="grid gap-6 lg:grid-cols-2">
-                {/* Bar Chart Example */}
-                <div className="rounded-xl bg-white p-4 shadow-sm ring-1 ring-slate-200 lg:p-6">
-                  <h3 className="mb-4 text-lg font-semibold text-slate-900">User Growth (Last 3 Days)</h3>
-                  <div className="space-y-2">
-                    {chartData.userGrowth.length > 0 ? chartData.userGrowth.map((data) => {
-                      const total = data.students + data.business;
-                      const maxTotal = Math.max(...chartData.userGrowth.map(d => d.students + d.business), 1);
+                  {(() => {
+                    // Sort activities by createdAt/time descending
+                    const sortedActivities = [...(activities || [])].sort((a, b) => {
+                      const aTime = new Date(a.time || a.createdAt || 0).getTime();
+                      const bTime = new Date(b.time || b.createdAt || 0).getTime();
+                      return bTime - aTime;
+                    });
+                    if (sortedActivities.length === 0) {
                       return (
-                        <div key={data.month}>
-                          <div className="mb-1 flex items-center justify-between text-xs text-slate-600">
-                            <span className="font-medium">{data.month}</span>
-                            <span className="font-semibold text-slate-900">{total} total</span>
-                          </div>
-                          <div className="group flex h-8 gap-1 overflow-hidden rounded-lg">
-                            <div
-                              className="relative bg-blue-500 transition-all duration-300 hover:bg-blue-600"
-                              style={{ width: `${(data.students / maxTotal) * 100}%` }}
-                            >
-                              <div className="absolute inset-0 flex items-center justify-center opacity-0 transition-opacity group-hover:opacity-100">
-                                <span className="text-xs font-semibold text-white">{data.students}</span>
-                              </div>
-                            </div>
-                            <div
-                              className="relative bg-green-500 transition-all duration-300 hover:bg-green-600"
-                              style={{ width: `${(data.business / maxTotal) * 100}%` }}
-                            >
-                              <div className="absolute inset-0 flex items-center justify-center opacity-0 transition-opacity group-hover:opacity-100">
-                                <span className="text-xs font-semibold text-white">{data.business}</span>
-                              </div>
-                            </div>
-                          </div>
+                        <div className="py-8 text-center text-sm text-slate-500">
+                          No recent activities
                         </div>
                       );
-                    }) : (
-                      <div className="flex h-32 items-center justify-center text-sm text-slate-500">
-                        No data available
+                    }
+                    return (
+                      <div className="space-y-3 w-full overflow-x-auto">
+                        {(showAllActivities ? sortedActivities : sortedActivities.slice(0, 5)).map((activity) => {
+                          const timeAgo = getTimeAgo(activity.time ?? activity.createdAt ?? "");
+                          return (
+                            <div key={activity.id} className="flex flex-col sm:flex-row sm:items-center gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3 min-w-[260px]">
+                              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-blue-100 text-xs font-bold text-blue-700">
+                                {activity.icon}
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm font-medium text-slate-900 truncate">{activity.user}</p>
+                                <p className="text-xs text-slate-600 truncate">{activity.action}</p>
+                              </div>
+                              <span className="text-xs text-slate-500 whitespace-nowrap">{timeAgo}</span>
+                            </div>
+                          );
+                        })}
+                        {showAllActivities && sortedActivities.length > 0 && (
+                          <div className="rounded-lg border border-slate-200 bg-white p-3 text-xs text-slate-600">
+                            <p className="font-semibold text-slate-900">Activity Details</p>
+                            <ul className="mt-2 space-y-1">
+                              {sortedActivities.map((activity) => (
+                                <li key={`detail-${activity.id}`} className="flex items-start gap-2">
+                                  <span className="text-blue-600">•</span>
+                                  <span>
+                                    <span className="font-medium text-slate-900">{activity.user}</span> {activity.action} — {getTimeAgo(activity.time ?? activity.createdAt ?? "")}
+                                  </span>
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
                       </div>
-                    )}
-                    <div className="mt-4 flex flex-wrap gap-3 text-xs">
-                      <div className="flex items-center gap-2">
-                        <div className="h-3 w-3 rounded bg-blue-500"></div>
-                        <span className="text-slate-600">Students</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <div className="h-3 w-3 rounded bg-green-500"></div>
-                        <span className="text-slate-600">Business</span>
-                      </div>
+                    );
+                  })()}
+                </div>
+              </div>
+              {/* Chart Examples - Mobile Responsive */}
+              <div className="grid gap-6 sm:grid-cols-1 md:grid-cols-2">
+                {/* User Roles Bar Chart with Filters */}
+                <div className="rounded-xl bg-white p-2 sm:p-4 shadow-sm ring-1 ring-slate-200 flex flex-col">
+                  <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <h3 className="text-lg font-semibold text-slate-900">User Roles Chart</h3>
+                    <select
+                      value={userRoleFilter}
+                      onChange={e => setUserRoleFilter(e.target.value)}
+                      className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 w-full sm:w-auto"
+                    >
+                      <option value="all">All Roles</option>
+                      <option value="student">Students</option>
+                      <option value="business">Business</option>
+                      <option value="admin">Admins</option>
+                    </select>
+                  </div>
+                  <div className="w-full overflow-x-auto">
+                    <div style={{ minWidth: 320 }}>
+                      <ResponsiveContainer width="100%" height={250}>
+                        <BarChart data={userRoleChartData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
+                          <XAxis dataKey="month" />
+                          <YAxis allowDecimals={false} />
+                          <Tooltip />
+                          <Legend />
+                          {(userRoleFilter === "all" || userRoleFilter === "student") && (
+                            <Bar dataKey="students" fill="#3b82f6" name="Students" />
+                          )}
+                          {(userRoleFilter === "all" || userRoleFilter === "business") && (
+                            <Bar dataKey="business" fill="#22c55e" name="Business" />
+                          )}
+                          {(userRoleFilter === "all" || userRoleFilter === "admin") && (
+                            <Bar dataKey="admins" fill="#f59e42" name="Admins" />
+                          )}
+                        </BarChart>
+                      </ResponsiveContainer>
                     </div>
                   </div>
                 </div>
@@ -2343,67 +2377,50 @@ export default function AdminPage() {
                     <h3 className="text-lg font-semibold text-slate-900">Login Activity</h3>
                     <select
                       value={activityRange}
-                      onChange={(e) => setActivityRange(e.target.value as "today" | "7" | "30" | "365")}
+                      onChange={e => setActivityRange(e.target.value)}
                       className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700"
                     >
-                      <option value="today">Today</option>
-                      <option value="7">Last 7 days</option>
-                      <option value="30">Last 30 days</option>
-                      <option value="365">Last year</option>
+                      <option value="1">January</option>
+                      <option value="2">February</option>
+                      <option value="3">March</option>
+                      <option value="4">April</option>
+                      <option value="5">May</option>
+                      <option value="6">June</option>
+                      <option value="7">July</option>
+                      <option value="8">August</option>
+                      <option value="9">September</option>
+                      <option value="10">October</option>
+                      <option value="11">November</option>
+                      <option value="12">December</option>
                     </select>
                   </div>
                   <div className="flex flex-col items-center gap-4 sm:flex-row sm:justify-around">
-                    <div className="relative h-32 w-32 sm:h-40 sm:w-40">
-                      {(() => {
-                        const total = activityTotal;
-                        const circumference = 2 * Math.PI * 40;
-                        const studentPercent = total > 0 ? (activityCounts.student / total) : 0;
-                        const businessPercent = total > 0 ? (activityCounts.business / total) : 0;
-                        const studentDash = circumference * studentPercent;
-                        const businessDash = circumference * businessPercent;
-                        
-                        return (
-                          <>
-                            <svg className="h-full w-full -rotate-90 transform" viewBox="0 0 100 100">
-                              <circle
-                                cx="50"
-                                cy="50"
-                                r="40"
-                                fill="none"
-                                stroke="#e2e8f0"
-                                strokeWidth="20"
-                              />
-                              <circle
-                                cx="50"
-                                cy="50"
-                                r="40"
-                                fill="none"
-                                stroke="#3b82f6"
-                                strokeWidth="20"
-                                strokeDasharray={`${studentDash} ${circumference}`}
-                                strokeLinecap="round"
-                                className="transition-all duration-500 hover:stroke-[22]"
-                              />
-                              <circle
-                                cx="50"
-                                cy="50"
-                                r="40"
-                                fill="none"
-                                stroke="#10b981"
-                                strokeWidth="20"
-                                strokeDasharray={`${businessDash} ${circumference}`}
-                                strokeDashoffset={-studentDash}
-                                strokeLinecap="round"
-                                className="transition-all duration-500 hover:stroke-[22]"
-                              />
-                            </svg>
-                            <div className="absolute inset-0 flex flex-col items-center justify-center">
-                              <span className="text-2xl font-bold text-slate-900">{total}</span>
-                              <span className="text-xs text-slate-600">Total</span>
-                            </div>
-                          </>
-                        );
-                      })()}
+                    <div className="relative" style={{ width: 320, height: 320 }}>
+                      <PieChart width={320} height={320}>
+                        <Pie
+                          data={[
+                            { name: 'Students', value: activityCounts.student },
+                            { name: 'Business', value: activityCounts.business }
+                          ]}
+                          dataKey="value"
+                          nameKey="name"
+                          cx="50%"
+                          cy="50%"
+                          innerRadius={80}
+                          outerRadius={120}
+                          fill="#8884d8"
+                          paddingAngle={6}
+                        >
+                          <Cell key="students" fill="#3b82f6" />
+                          <Cell key="business" fill="#10b981" />
+                        </Pie>
+                        <Tooltip />
+                        <Legend />
+                      </PieChart>
+                      <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                        <span className="text-4xl font-bold text-slate-900">{activityTotal}</span>
+                        <span className="text-base text-slate-600">Total</span>
+                      </div>
                     </div>
                     <div className="space-y-2 text-sm">
                       <div className="flex items-center justify-between gap-4">
@@ -2431,27 +2448,6 @@ export default function AdminPage() {
                   </div>
                 </div>
 
-                <div className="rounded-xl bg-white p-4 shadow-sm ring-1 ring-slate-200 lg:p-6">
-                  <h3 className="mb-4 text-lg font-semibold text-slate-900">System Health (Last 3 Days)</h3>
-                  <div className="space-y-3">
-                    {systemHealth.trend.length > 0 ? systemHealth.trend.map((day) => (
-                      <div key={day.label} className="flex items-center gap-3">
-                        <span className="w-16 text-xs font-medium text-slate-600">{day.label}</span>
-                        <div className="relative h-2 flex-1 overflow-hidden rounded-full bg-slate-100">
-                          <div
-                            className={`h-full ${day.score >= 90 ? "bg-green-500" : day.score >= 70 ? "bg-amber-500" : "bg-red-500"}`}
-                            style={{ width: `${Math.min(Math.max(day.score, 0), 100)}%` }}
-                          ></div>
-                        </div>
-                        <span className="w-12 text-right text-xs font-semibold text-slate-900">{day.score}%</span>
-                      </div>
-                    )) : (
-                      <div className="flex h-24 items-center justify-center text-sm text-slate-500">
-                        No system health data yet
-                      </div>
-                    )}
-                  </div>
-                </div>
               </div>
             </div>
           )}
@@ -2558,8 +2554,8 @@ export default function AdminPage() {
                               {student.username}
                             </td>
                             <td className="whitespace-nowrap px-3 py-4 text-sm text-slate-600 lg:px-6">
-                              <span className="hidden sm:inline">{student.email}</span>
-                              <span className="sm:hidden">{student.email.split('@')[0]}</span>
+                              <span className="hidden sm:inline">{student.email || "—"}</span>
+                              <span className="sm:hidden">{student.email ? student.email.split('@')[0] : "—"}</span>
                             </td>
                             <td className="whitespace-nowrap px-3 py-4 text-sm text-slate-600 lg:px-6">
                               {student.phone || "—"}
@@ -2751,8 +2747,8 @@ export default function AdminPage() {
                               {biz.username}
                             </td>
                             <td className="whitespace-nowrap px-3 py-4 text-sm text-slate-600 lg:px-6">
-                              <span className="hidden sm:inline">{biz.email}</span>
-                              <span className="sm:hidden">{biz.email.split('@')[0]}</span>
+                              <span className="hidden sm:inline">{biz.email || "—"}</span>
+                              <span className="sm:hidden">{biz.email ? biz.email.split('@')[0] : "—"}</span>
                             </td>
                             <td className="whitespace-nowrap px-3 py-4 text-sm text-slate-600 lg:px-6">
                               {biz.phone || "—"}
@@ -2855,11 +2851,7 @@ export default function AdminPage() {
               </div>
 
               <div className="space-y-4">
-                {announcementsLoading ? (
-                  <div className="rounded-xl bg-white p-6 text-sm text-slate-600 shadow-sm ring-1 ring-slate-200">
-                    Loading announcements...
-                  </div>
-                ) : (announcements?.length || 0) === 0 ? (
+                {(announcements?.length || 0) === 0 ? (
                   <div className="rounded-xl bg-white p-6 text-sm text-slate-600 shadow-sm ring-1 ring-slate-200">
                     No announcements yet.
                   </div>
@@ -2874,7 +2866,7 @@ export default function AdminPage() {
                             {new Date(announcement.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
                           </p>
                           <p className="mt-2 text-xs text-slate-500">
-                            Audience: {announcement.audience?.includes("student") ? "Students" : ""}{announcement.audience?.includes("student") && announcement.audience?.includes("business") ? ", " : ""}{announcement.audience?.includes("business") ? "Business" : ""}
+                            Audience: {Array.isArray(announcement.audience) && announcement.audience.length > 0 ? announcement.audience.join(", ") : "All"}
                           </p>
                         </div>
                         <div className="flex gap-2">
@@ -2907,7 +2899,7 @@ export default function AdminPage() {
                   <p className="text-sm text-slate-600">Handle user requests and admin follow-ups.</p>
                 </div>
                 <button
-                  onClick={() => fetchTasks()}
+
                   className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
                 >
                   Refresh
@@ -3103,32 +3095,110 @@ export default function AdminPage() {
           )}
 
           {activeSection === "reports" && (
-            <div className="space-y-6">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+
+            <div className="space-y-8">
+              {/* Security & Compliance Overview */}
+              <div className="rounded-xl bg-gradient-to-r from-blue-700 to-blue-500 p-6 shadow-lg flex flex-col md:flex-row md:items-center md:justify-between gap-4">
                 <div>
-                  <h3 className="text-lg font-semibold text-slate-900">Reports</h3>
-                  <p className="text-sm text-slate-600">Administrative oversight, performance tracking, and audit support.</p>
+                  <h2 className="text-2xl font-bold text-white flex items-center gap-2">
+                    <svg className="h-7 w-7 text-blue-200" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 11c0-1.104.896-2 2-2s2 .896 2 2-.896 2-2 2-2-.896-2-2zm0 0V7m0 4v4m0 0c0 1.104-.896 2-2 2s-2-.896-2-2 .896-2 2-2 2 .896 2 2z" /></svg>
+                    Security & Compliance Overview
+                  </h2>
+                  <p className="mt-2 text-blue-100 max-w-2xl">This dashboard provides a comprehensive overview of system security, user activity, and audit trails. All actions are logged for traceability and compliance. Monitor key metrics below to ensure your system remains secure and compliant.</p>
                 </div>
                 <div className="flex flex-wrap gap-2">
                   <button
                     onClick={handleExportReportsPdf}
-                    className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                    className="rounded-lg border border-blue-200 bg-white/90 px-3 py-2 text-sm font-semibold text-blue-800 hover:bg-blue-50 shadow"
                   >
                     Export PDF
                   </button>
                   <button
                     onClick={handleExportReportsExcel}
-                    className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                    className="rounded-lg border border-blue-200 bg-white/90 px-3 py-2 text-sm font-semibold text-blue-800 hover:bg-blue-50 shadow"
                   >
                     Export Excel
                   </button>
                   <button
                     onClick={handlePrintReports}
-                    className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+                    className="rounded-lg bg-blue-900 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-800 shadow"
                   >
                     Print report
                   </button>
+                  <button
+                    onClick={() => {
+                      if (reportSummary?.auditLogs?.length) {
+                        const csv = [
+                          ["Date", "Action", "Actor", "Target", "Details", "Actor Role", "Target Role"],
+                          ...reportSummary.auditLogs.map((log: any) => [
+                            new Date(log.createdAt).toLocaleString(),
+                            log.action,
+                            log.actorName || "-",
+                            log.targetName || "-",
+                            log.details || "-",
+                            log.actorRole || "-",
+                            log.targetRole || "-"
+                          ])
+                        ].map((row: (string | number | boolean | null | undefined)[]) => row.map(function(field: string | number | boolean | null | undefined): string { return `"${String(field).replace(/"/g, '""')}`; }).join(",")).join("\n");
+                        const blob = new Blob([csv], { type: 'text/csv' });
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = 'full-audit-trail.csv';
+                        a.click();
+                        URL.revokeObjectURL(url);
+                      }
+                    }}
+                    className="rounded-lg border border-blue-200 bg-white/90 px-3 py-2 text-sm font-semibold text-blue-800 hover:bg-blue-50 shadow"
+                  >
+                    Download Full Audit Trail
+                  </button>
                 </div>
+              </div>
+
+              {/* Key Security Metrics */}
+              {reportSummary && (
+                <div className="grid gap-6 md:grid-cols-3">
+                  {/* Failed Logins */}
+                  <div className="rounded-xl bg-white p-6 shadow ring-1 ring-red-200 flex items-center gap-4">
+                    <div className="flex items-center justify-center h-12 w-12 rounded-full bg-red-50">
+                      <svg className="h-7 w-7 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12c0 4.97-4.03 9-9 9s-9-4.03-9-9 4.03-9 9-9 9 4.03 9 9z" /></svg>
+                    </div>
+                    <div>
+                      <p className="text-xs font-semibold text-slate-600">Failed Logins</p>
+                      <p className={`mt-1 text-2xl font-bold ${reportSummary.activity?.failedLogins && reportSummary.activity.failedLogins > 5 ? 'text-red-600' : 'text-slate-900'}`}>{reportSummary.activity?.failedLogins ?? 0}</p>
+                      <span className={`inline-block mt-1 text-xs font-semibold ${reportSummary.activity?.failedLogins && reportSummary.activity.failedLogins > 5 ? 'text-red-600' : 'text-green-600'}`}>{reportSummary.activity?.failedLogins && reportSummary.activity.failedLogins > 5 ? 'Attention Needed' : 'All Clear'}</span>
+                    </div>
+                  </div>
+                  {/* Admin Actions */}
+                  <div className="rounded-xl bg-white p-6 shadow ring-1 ring-yellow-200 flex items-center gap-4">
+                    <div className="flex items-center justify-center h-12 w-12 rounded-full bg-yellow-50">
+                      <svg className="h-7 w-7 text-yellow-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
+                    </div>
+                    <div>
+                      <p className="text-xs font-semibold text-slate-600">Admin Actions</p>
+                      <p className="mt-1 text-2xl font-bold text-slate-900">{reportSummary.activity?.adminActions ?? 0}</p>
+                      <span className="inline-block mt-1 text-xs font-semibold text-yellow-600">Monitored</span>
+                    </div>
+                  </div>
+                  {/* Audit Log Volume */}
+                  <div className="rounded-xl bg-white p-6 shadow ring-1 ring-blue-200 flex items-center gap-4">
+                    <div className="flex items-center justify-center h-12 w-12 rounded-full bg-blue-50">
+                      <svg className="h-7 w-7 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17v-2a4 4 0 014-4h4m0 0V7m0 4v4m0 0c0 1.104-.896 2-2 2s-2-.896-2-2 .896-2 2-2 2 .896 2 2z" /></svg>
+                    </div>
+                    <div>
+                      <p className="text-xs font-semibold text-slate-600">Audit Log Entries</p>
+                      <p className="mt-1 text-2xl font-bold text-slate-900">{Array.isArray(reportSummary.auditLogs) ? reportSummary.auditLogs.length : 0}</p>
+                      <span className="inline-block mt-1 text-xs font-semibold text-blue-600">Traceable</span>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Compliance Note */}
+              <div className="rounded-lg bg-blue-50 border border-blue-200 p-4 text-xs text-blue-800 flex items-center gap-2">
+                <svg className="h-5 w-5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                <span>All user and admin actions are logged and monitored for compliance and security. Regularly review audit logs for unusual activity.</span>
               </div>
 
               <div className="rounded-xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
@@ -3138,7 +3208,7 @@ export default function AdminPage() {
                     <input
                       type="date"
                       value={reportFilters.startDate}
-                      onChange={(e) => setReportFilters((prev) => ({ ...prev, startDate: e.target.value }))}
+                      onChange={(e) => setReportFilters((prev: ReportFilters) => ({ ...prev, startDate: e.target.value }))}
                       className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
                     />
                   </div>
@@ -3147,7 +3217,7 @@ export default function AdminPage() {
                     <input
                       type="date"
                       value={reportFilters.endDate}
-                      onChange={(e) => setReportFilters((prev) => ({ ...prev, endDate: e.target.value }))}
+                      onChange={(e) => setReportFilters((prev: ReportFilters) => ({ ...prev, endDate: e.target.value }))}
                       className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
                     />
                   </div>
@@ -3155,7 +3225,7 @@ export default function AdminPage() {
                     <label className="text-xs font-semibold text-slate-600">Role</label>
                     <select
                       value={reportFilters.role}
-                      onChange={(e) => setReportFilters((prev) => ({ ...prev, role: e.target.value }))}
+                      onChange={(e) => setReportFilters((prev: ReportFilters) => ({ ...prev, role: e.target.value }))}
                       className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
                     >
                       <option value="all">All roles</option>
@@ -3168,7 +3238,7 @@ export default function AdminPage() {
                     <label className="text-xs font-semibold text-slate-600">Status</label>
                     <select
                       value={reportFilters.status}
-                      onChange={(e) => setReportFilters((prev) => ({ ...prev, status: e.target.value }))}
+                      onChange={(e) => setReportFilters((prev: ReportFilters) => ({ ...prev, status: e.target.value }))}
                       className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
                     >
                       <option value="all">All statuses</option>
@@ -3181,7 +3251,7 @@ export default function AdminPage() {
                     <input
                       type="text"
                       value={reportFilters.search}
-                      onChange={(e) => setReportFilters((prev) => ({ ...prev, search: e.target.value }))}
+                      onChange={(e) => setReportFilters((prev: ReportFilters) => ({ ...prev, search: e.target.value }))}
                       placeholder="Search users"
                       className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
                     />
@@ -3189,17 +3259,17 @@ export default function AdminPage() {
                 </div>
               </div>
 
-              {!reportSummary ? (
+              {reportLoading ? (
+                <div className="rounded-xl bg-white p-6 text-sm text-slate-600 shadow-sm ring-1 ring-slate-200 flex items-center gap-2">
+                  <svg className="animate-spin h-5 w-5 text-blue-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"></path></svg>
+                  Generating report...
+                </div>
+              ) : !reportSummary ? (
                 <div className="rounded-xl bg-white p-6 text-sm text-slate-600 shadow-sm ring-1 ring-slate-200">
-                  Loading reports...
+                  No report data.
                 </div>
               ) : (
                 <div className="space-y-6">
-                  {reportLoading && (
-                    <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-2 text-xs text-slate-600">
-                      Updating reports...
-                    </div>
-                  )}
                   <div className="rounded-xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
                     <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                       <div>
@@ -3210,10 +3280,10 @@ export default function AdminPage() {
                     </div>
                     <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
                       {[
-                        { label: "Total Users", value: reportSummary.users.total },
-                        { label: "Active Users", value: reportSummary.users.byStatus.Active || 0 },
-                        { label: "Inactive Users", value: reportSummary.users.byStatus.Inactive || 0 },
-                        { label: "New Registrations", value: reportSummary.users.newRegistrations }
+                        { label: "Total Users", value: reportSummary?.users?.total || 0 },
+                        { label: "Active Users", value: reportSummary?.users?.byStatus?.Active || 0 },
+                        { label: "Inactive Users", value: reportSummary?.users?.byStatus?.Inactive || 0 },
+                        { label: "New Registrations", value: reportSummary?.users?.newRegistrations || 0 }
                       ].map((card) => (
                         <div key={card.label} className="rounded-lg border border-slate-200 bg-slate-50 p-4">
                           <p className="text-xs font-semibold text-slate-600">{card.label}</p>
@@ -3225,16 +3295,16 @@ export default function AdminPage() {
                       <div>
                         <h5 className="text-sm font-semibold text-slate-800">Users by role</h5>
                         <div className="mt-3 space-y-3">
-                          {Object.entries(reportSummary.users.byRole).map(([role, count]) => (
+                          {reportSummary && reportSummary.users && reportSummary.users.byRole && Object.entries(reportSummary.users.byRole).map(([role, count]) => (
                             <div key={role}>
                               <div className="flex items-center justify-between text-xs text-slate-600">
                                 <span className="capitalize">{role}</span>
-                                <span>{count}</span>
+                                <span>{Number(count)}</span>
                               </div>
                               <div className="mt-2 h-2 rounded-full bg-slate-100">
                                 <div
                                   className="h-2 rounded-full bg-blue-600"
-                                  style={{ width: getBarWidth(count, reportUserRoleMax) }}
+                                  style={{ width: getBarWidth(Number(count), reportUserRoleMax) }}
                                 />
                               </div>
                             </div>
@@ -3247,20 +3317,20 @@ export default function AdminPage() {
                           <div
                             className="h-24 w-24 rounded-full"
                             style={{ background: buildPieGradient({
-                              Active: reportSummary.users.byStatus.Active || 0,
-                              Inactive: reportSummary.users.byStatus.Inactive || 0
+                              Active: reportSummary?.users?.byStatus?.Active || 0,
+                              Inactive: reportSummary?.users?.byStatus?.Inactive || 0
                             }, ["#10b981", "#f59e0b"]) }}
                           />
                           <div className="space-y-2 text-xs text-slate-600">
                             <div className="flex items-center gap-2">
                               <span className="inline-block h-2 w-2 rounded-full" style={{ backgroundColor: "#10b981" }} />
                               <span>Active</span>
-                              <span className="text-slate-500">({reportSummary.users.byStatus.Active || 0})</span>
+                              <span className="text-slate-500">({reportSummary?.users?.byStatus?.Active || 0})</span>
                             </div>
                             <div className="flex items-center gap-2">
                               <span className="inline-block h-2 w-2 rounded-full" style={{ backgroundColor: "#f59e0b" }} />
                               <span>Inactive</span>
-                              <span className="text-slate-500">({reportSummary.users.byStatus.Inactive || 0})</span>
+                              <span className="text-slate-500">({reportSummary?.users?.byStatus?.Inactive || 0})</span>
                             </div>
                           </div>
                         </div>
@@ -3276,29 +3346,29 @@ export default function AdminPage() {
                       </div>
                       <div className="grid w-full gap-3 sm:w-auto sm:grid-cols-3">
                         <div>
-                          <label className="text-xs font-semibold text-slate-600">Start date</label>
+                          <label className="text-[10px] font-semibold text-slate-500">Start</label>
                           <input
                             type="date"
                             value={reportFilters.activityStartDate}
-                            onChange={(e) => setReportFilters((prev) => ({ ...prev, activityStartDate: e.target.value }))}
-                            className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                            onChange={(e) => setReportFilters((prev: ReportFilters) => ({ ...prev, activityStartDate: e.target.value }))}
+                            className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-xs"
                           />
                         </div>
                         <div>
-                          <label className="text-xs font-semibold text-slate-600">End date</label>
+                          <label className="text-[10px] font-semibold text-slate-500">End</label>
                           <input
                             type="date"
                             value={reportFilters.activityEndDate}
-                            onChange={(e) => setReportFilters((prev) => ({ ...prev, activityEndDate: e.target.value }))}
-                            className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                            onChange={(e) => setReportFilters((prev: ReportFilters) => ({ ...prev, activityEndDate: e.target.value }))}
+                            className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-xs"
                           />
                         </div>
                         <div>
-                          <label className="text-xs font-semibold text-slate-600">Activity user</label>
+                          <label className="text-[10px] font-semibold text-slate-500">Activity user</label>
                           <select
                             value={reportFilters.activityUserId}
-                            onChange={(e) => setReportFilters((prev) => ({ ...prev, activityUserId: e.target.value }))}
-                            className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
+                            onChange={(e) => setReportFilters((prev: ReportFilters) => ({ ...prev, activityUserId: e.target.value }))}
+                            className="mt-1 w-full rounded-md border border-slate-300 bg-white px-2 py-1 text-xs"
                           >
                             <option value="all">All users</option>
                             {[...students, ...businessUsers]
@@ -3315,9 +3385,9 @@ export default function AdminPage() {
                     </div>
                     <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
                       {[
-                        { label: "Login History", value: reportSummary.activity.logins },
-                        { label: "Admin Actions", value: reportSummary.activity.adminActions },
-                        { label: "Failed Logins", value: reportSummary.activity.failedLogins }
+                        { label: "Login History", value: reportSummary?.activity?.logins ?? 0 },
+                        { label: "Admin Actions", value: reportSummary?.activity?.adminActions ?? 0 },
+                        { label: "Failed Logins", value: reportSummary?.activity?.failedLogins ?? 0 }
                       ].map((card) => (
                         <div key={card.label} className="rounded-lg border border-slate-200 bg-slate-50 p-4">
                           <p className="text-xs font-semibold text-slate-600">{card.label}</p>
@@ -3328,16 +3398,16 @@ export default function AdminPage() {
                     <div className="mt-6">
                       <h5 className="text-sm font-semibold text-slate-800">Logins by role</h5>
                       <div className="mt-3 space-y-3">
-                        {Object.entries(reportSummary.activity.loginsByRole).map(([role, count]) => (
+                        {reportSummary && reportSummary.activity && reportSummary.activity.loginsByRole && Object.entries(reportSummary.activity.loginsByRole).map(([role, count]) => (
                           <div key={role}>
                             <div className="flex items-center justify-between text-xs text-slate-600">
                               <span className="capitalize">{role}</span>
-                              <span>{count}</span>
+                              <span>{Number(count)}</span>
                             </div>
                             <div className="mt-2 h-2 rounded-full bg-slate-100">
                               <div
                                 className="h-2 rounded-full bg-indigo-500"
-                                style={{ width: getBarWidth(count, reportSummary.activity.logins || 0) }}
+                                style={{ width: getBarWidth(Number(count), reportSummary?.activity?.logins || 0) }}
                               />
                             </div>
                           </div>
@@ -3359,7 +3429,7 @@ export default function AdminPage() {
                         <input
                           type="date"
                           value={reportFilters.sessionStartDate}
-                          onChange={(e) => setReportFilters((prev) => ({ ...prev, sessionStartDate: e.target.value }))}
+                          onChange={(e) => setReportFilters((prev: ReportFilters) => ({ ...prev, sessionStartDate: e.target.value }))}
                           className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
                         />
                       </div>
@@ -3368,7 +3438,7 @@ export default function AdminPage() {
                         <input
                           type="date"
                           value={reportFilters.sessionEndDate}
-                          onChange={(e) => setReportFilters((prev) => ({ ...prev, sessionEndDate: e.target.value }))}
+                          onChange={(e) => setReportFilters((prev: ReportFilters) => ({ ...prev, sessionEndDate: e.target.value }))}
                           className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
                         />
                       </div>
@@ -3376,7 +3446,7 @@ export default function AdminPage() {
                         <label className="text-xs font-semibold text-slate-600">Session user</label>
                         <select
                           value={reportFilters.sessionUserId}
-                          onChange={(e) => setReportFilters((prev) => ({ ...prev, sessionUserId: e.target.value }))}
+                          onChange={(e) => setReportFilters((prev: ReportFilters) => ({ ...prev, sessionUserId: e.target.value }))}
                           className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
                         >
                           <option value="all">All users</option>
@@ -3393,15 +3463,16 @@ export default function AdminPage() {
                     </div>
                     <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                       {(() => {
-                        const sessions = reportSummary.sessions || { count: 0, avgDurationMinutes: null };
+                        // Use filters to fetch real session data
+                        const sessions = reportSummary?.sessions || { count: 0, avgDurationMinutes: null };
                         return [
                           { label: "Sessions Logged", value: sessions.count },
                           { label: "Average Duration", value: sessions.avgDurationMinutes ? `${sessions.avgDurationMinutes} min` : "Not tracked" }
                         ].map((card) => (
-                        <div key={card.label} className="rounded-lg border border-slate-200 bg-slate-50 p-4">
-                          <p className="text-xs font-semibold text-slate-600">{card.label}</p>
-                          <p className="mt-2 text-xl font-bold text-slate-900">{card.value}</p>
-                        </div>
+                          <div key={card.label} className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+                            <p className="text-xs font-semibold text-slate-600">{card.label}</p>
+                            <p className="mt-2 text-xl font-bold text-slate-900">{card.value}</p>
+                          </div>
                         ));
                       })()}
                     </div>
@@ -3417,7 +3488,7 @@ export default function AdminPage() {
                             <input
                               type="date"
                               value={reportFilters.activityStartDate}
-                              onChange={(e) => setReportFilters((prev) => ({ ...prev, activityStartDate: e.target.value }))}
+                              onChange={(e) => setReportFilters((prev: ReportFilters) => ({ ...prev, activityStartDate: e.target.value }))}
                               className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-xs"
                             />
                           </div>
@@ -3426,7 +3497,7 @@ export default function AdminPage() {
                             <input
                               type="date"
                               value={reportFilters.activityEndDate}
-                              onChange={(e) => setReportFilters((prev) => ({ ...prev, activityEndDate: e.target.value }))}
+                              onChange={(e) => setReportFilters((prev: ReportFilters) => ({ ...prev, activityEndDate: e.target.value }))}
                               className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-xs"
                             />
                           </div>
@@ -3434,7 +3505,7 @@ export default function AdminPage() {
                             <label className="text-[10px] font-semibold text-slate-500">User</label>
                             <select
                               value={reportFilters.activityUserId}
-                              onChange={(e) => setReportFilters((prev) => ({ ...prev, activityUserId: e.target.value }))}
+                              onChange={(e) => setReportFilters((prev: ReportFilters) => ({ ...prev, activityUserId: e.target.value }))}
                               className="mt-1 w-full rounded-md border border-slate-300 bg-white px-2 py-1 text-xs"
                             >
                               <option value="all">All users</option>
@@ -3452,10 +3523,10 @@ export default function AdminPage() {
                       </div>
                     </div>
                     <div className="divide-y divide-slate-100">
-                      {reportSummary.auditLogs.length === 0 ? (
+                      {reportSummary && reportSummary.auditLogs && reportSummary.auditLogs.length === 0 ? (
                         <div className="px-6 py-6 text-sm text-slate-600">No audit logs for this period.</div>
                       ) : (
-                        reportSummary.auditLogs.map((log) => (
+                        reportSummary && reportSummary.auditLogs && reportSummary.auditLogs.map((log: AuditLog) => (
                           <button
                             key={log._id}
                             type="button"
@@ -3642,42 +3713,51 @@ export default function AdminPage() {
                 )}
               </div>
 
+
               <div className="rounded-xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
                 <h4 className="font-semibold text-slate-900">Time Format</h4>
                 <p className="mt-1 text-sm text-slate-600">Choose how time is displayed across the dashboard</p>
                 {isEditingSettings ? (
-                  <div className="mt-4 flex flex-wrap gap-3">
-                    <label className="flex items-center gap-2 rounded-lg border border-slate-200 px-4 py-2 text-sm text-slate-700">
-                      <input
-                        type="radio"
-                        name="timeFormat"
-                        checked={adminSettings.timeFormat === "24"}
-                        onChange={() => setAdminSettings({ ...adminSettings, timeFormat: "24" })}
-                        className="h-4 w-4 text-blue-600 focus:ring-blue-500"
-                      />
-                      24-hour
-                    </label>
-                    <label className="flex items-center gap-2 rounded-lg border border-slate-200 px-4 py-2 text-sm text-slate-700">
-                      <input
-                        type="radio"
-                        name="timeFormat"
-                        checked={adminSettings.timeFormat === "12"}
-                        onChange={() => setAdminSettings({ ...adminSettings, timeFormat: "12" })}
-                        className="h-4 w-4 text-blue-600 focus:ring-blue-500"
-                      />
-                      12-hour
-                    </label>
-                  </div>
+                  <>
+                    <div className="mt-4 flex flex-wrap gap-3">
+                      <label className="flex items-center gap-2 rounded-lg border border-slate-200 px-4 py-2 text-sm text-slate-700">
+                        <input
+                          type="radio"
+                          name="timeFormat"
+                          checked={adminSettings.timeFormat === "24"}
+                          onChange={() => setAdminSettings({ ...adminSettings, timeFormat: "24" })}
+                          className="h-4 w-4 text-blue-600 focus:ring-blue-500"
+                        />
+                        24-hour
+                      </label>
+                      <label className="flex items-center gap-2 rounded-lg border border-slate-200 px-4 py-2 text-sm text-slate-700">
+                        <input
+                          type="radio"
+                          name="timeFormat"
+                          checked={adminSettings.timeFormat === "12"}
+                          onChange={() => setAdminSettings({ ...adminSettings, timeFormat: "12" })}
+                          className="h-4 w-4 text-blue-600 focus:ring-blue-500"
+                        />
+                        12-hour
+                      </label>
+                    </div>
+                    <div className="mt-6">
+                      <label className="block text-slate-600 mb-2">System Language</label>
+                    </div>
+                  </>
                 ) : (
                   <p className="mt-3 text-sm text-slate-700">
                     Current format: {adminSettings.timeFormat === "12" ? "12-hour" : "24-hour"}
                   </p>
                 )}
               </div>
+
             </div>
           )}
+
         </main>
       </div>
     </div>
-  );
+
+  )
 }

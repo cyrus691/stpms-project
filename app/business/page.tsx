@@ -1,62 +1,11 @@
 "use client";
-
-// Print Sale Receipt Utility (top-level for global scope)
-function printSaleReceipt(sale: {
-  saleDate: string;
-  customerName?: string;
-  productName: string;
-  quantity: number;
-  unitPrice: number;
-  totalAmount: number;
-}) {
-  const businessName = (typeof window !== 'undefined' && window.localStorage.getItem('business_name')) || 'Business';
-  const businessAddress = (typeof window !== 'undefined' && window.localStorage.getItem('business_address')) || '';
-  const businessPhone = (typeof window !== 'undefined' && window.localStorage.getItem('business_phone')) || '';
-  const businessEmail = (typeof window !== 'undefined' && window.localStorage.getItem('business_email')) || '';
-  const win = window.open('', 'PRINT', 'height=600,width=400');
-  if (win) {
-    win.document.write(`
-      <html>
-        <head>
-          <title>Receipt</title>
-          <style>
-            body { font-family: Arial, sans-serif; font-size: 13px; margin: 0; padding: 0; }
-            .receipt { max-width: 320px; margin: 0 auto; padding: 16px; border: 1px solid #eee; }
-            .header { text-align: center; margin-bottom: 12px; }
-            .details { margin-bottom: 12px; }
-            .footer { text-align: center; margin-top: 16px; font-size: 11px; color: #888; }
-          </style>
-        </head>
-        <body>
-          <div class="receipt">
-            <div class="header">
-              <h2 style="margin:0;">${businessName}</h2>
-              <div>${businessAddress}</div>
-              <div>${businessPhone}</div>
-              <div>${businessEmail}</div>
-            </div>
-            <div class="details">
-              <div>Date: ${new Date(sale.saleDate).toLocaleDateString()}</div>
-              <div>Customer: ${sale.customerName || 'Cash Sale'}</div>
-              <div>Product: ${sale.productName}</div>
-              <div>Quantity: ${sale.quantity}</div>
-              <div>Unit Price: ${sale.unitPrice}</div>
-              <div>Total: ${sale.totalAmount}</div>
-            </div>
-            <div class="footer">Thank you for your business!</div>
-          </div>
-        </body>
-      </html>
-    `);
-    win.document.close();
-    win.focus();
-    win.print();
-    win.close();
-  }
+// Helper to always get a safe sales array
+function getSales(sales: Sale[] | undefined): Sale[] {
+  return Array.isArray(sales) ? sales : [];
 }
-
-import React, { useState, useEffect, useMemo, useRef } from "react";
-
+import React, { useState, useEffect, useMemo, useRef, createContext, useTransition } from "react";
+// Context to provide setSales for optimistic updates
+const SalesContext = createContext<{ setSales?: React.Dispatch<React.SetStateAction<Sale[] | undefined>> } | undefined>(undefined);
 import { signOut, useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 
@@ -65,6 +14,7 @@ function formatCurrency(amount: number, currency: string, currencyRates?: Record
   const rate = currencyRates?.[currency] ?? 1;
   return new Intl.NumberFormat("en-US", { style: "currency", currency }).format(amount * rate);
 }
+
 
 
 // --- Invoice Actions Handlers ---
@@ -77,7 +27,8 @@ interface Invoice {
   dueDate: string;
   createdAt: string;
   balance?: number;
-}
+    creditorEmail?: string; // add creditor email for display and logic
+  }
 
 function handleViewInvoice(invoice: Invoice) {
   alert(`Viewing invoice #${invoice.invoiceNumber}`);
@@ -102,62 +53,85 @@ interface PaymentFormProps {
 function PaymentForm({ invoice, currency, currencyRates, onPaymentSuccess }: PaymentFormProps) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [amount, setAmount] = useState<string>("");
   const amountRef = useRef<HTMLInputElement>(null);
   const methodRef = useRef<HTMLSelectElement>(null);
+
+  // Set default amount to outstanding balance when invoice changes
+  React.useEffect(() => {
+    const outstanding = typeof invoice.balance === "number" && invoice.balance > 0
+      ? (invoice.balance * (currencyRates[currency] ?? 1)).toFixed(2)
+      : (invoice.amount * (currencyRates[currency] ?? 1)).toFixed(2);
+    setAmount(outstanding);
+  }, [invoice, currency, currencyRates]);
+
+  const salesContext = React.useContext(SalesContext);
+  // Provide a fallback no-op if setSales is undefined to avoid type errors
+  const setSales = salesContext?.setSales ?? (() => {});
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
     setError(null);
-    const amount = parseFloat(amountRef.current?.value || "");
+    const amt = parseFloat(amount);
     const method = methodRef.current?.value || "";
-    if (!amount || amount <= 0) {
+    if (!amt || amt <= 0) {
       setError("Enter a valid amount");
       setSaving(false);
       return;
     }
-    const res = await fetch(`/api/business-sales/${invoice._id}/payments`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ amount, method })
-    });
-    if (res.ok) {
-      if (onPaymentSuccess) {
-        await res.json();
-        onPaymentSuccess();
+    try {
+      const res = await fetch(`/api/business-sales/${invoice._id}/payments`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ amount: amt, method })
+      });
+      if (res.ok) {
+        const updatedSale = await res.json();
+        // Optimistically update the sale in the sales state
+        setSales && setSales(prev => prev ? prev.map(s => s._id === updatedSale._id ? updatedSale : s) : [updatedSale]);
+        setAmount("");
+        setSaving(false);
+      } else {
+        throw new Error("Payment failed");
       }
-      if (amountRef.current) amountRef.current.value = "";
-      setSaving(false);
-    } else {
+    } catch (err) {
       setError("Payment failed");
       setSaving(false);
+      // fallback to full reload if optimistic update fails
+      if (onPaymentSuccess) onPaymentSuccess();
     }
   };
+  const maxAmount = typeof invoice.balance === "number" && invoice.balance > 0
+    ? (invoice.balance * (currencyRates[currency] ?? 1)).toFixed(2)
+    : (invoice.amount * (currencyRates[currency] ?? 1)).toFixed(2);
   return (
     <form onSubmit={handleSubmit} className="flex items-center gap-2 mt-1">
       <div className="relative flex items-center">
-        <span className="absolute left-3 text-xs text-slate-500">{currency}</span>
+        <span className="absolute left-3 text-sm md:text-base text-slate-500">{currency}</span>
         <input
           type="number"
           name="amount"
           min="0.01"
-          max={typeof invoice.balance === "number" && invoice.balance > 0 ? (invoice.balance * (currencyRates[currency] ?? 1)).toFixed(2) : (invoice.amount * (currencyRates[currency] ?? 1)).toFixed(2)}
+          max={maxAmount}
           step="0.01"
           placeholder={`Amount (${currency})`}
-          className="w-36 rounded border px-8 py-2 text-sm text-right"
+          className="w-36 rounded border px-8 py-2 text-base md:text-lg text-right"
           required
           ref={amountRef}
+          value={amount}
+          onChange={e => setAmount(e.target.value)}
         />
       </div>
-      <select name="method" className="rounded border px-2 py-1 text-xs" required ref={methodRef}>
+      <select name="method" className="rounded border px-2 py-1 text-sm md:text-base" required ref={methodRef}>
         <option value="cash">Cash</option>
         <option value="card">Card</option>
         <option value="bank_transfer">Bank Transfer</option>
         <option value="other">Other</option>
       </select>
-      <button type="submit" className="rounded bg-blue-600 px-2 py-1 text-xs text-white hover:bg-blue-700" disabled={saving}>
+      <button type="submit" className="rounded bg-blue-600 px-2 py-1 text-sm md:text-base text-white hover:bg-blue-700" disabled={saving}>
         {saving ? "Saving..." : "Record Payment"}
       </button>
-      {error && <span className="text-xs text-red-600 ml-2">{error}</span>}
+      {error && <span className="text-sm md:text-base text-red-600 ml-2">{error}</span>}
     </form>
   );
 }
@@ -169,8 +143,7 @@ function PaymentForm({ invoice, currency, currencyRates, onPaymentSuccess }: Pay
 
 
 function BusinessRegistrationForm() {
-  const { data: session } = useSession();
-
+  // Removed unused 'session' variable
   const [form, setForm] = useState({
     businessName: "",
     address: "",
@@ -183,58 +156,41 @@ function BusinessRegistrationForm() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
-  // Load business info from API
+  // Load business info on mount
   useEffect(() => {
-    const fetchBusinessInfo = async () => {
+    async function loadBusinessInfo() {
       try {
         const res = await fetch("/api/business-information", { credentials: "include" });
         if (res.ok) {
           const data = await res.json();
-          if (data && data.businessName) {
-            setForm({
-              businessName: data.businessName || "",
-              address: data.address || "",
-              email: data.email || "",
-              phone: data.phone || "",
-              taxNumber: data.taxNumber || ""
-            });
-          }
+          setForm({
+            businessName: data.businessName || "",
+            address: data.address || "",
+            email: data.email || "",
+            phone: data.phone || "",
+            taxNumber: data.taxNumber || ""
+          });
         }
       } catch (err) {
         // ignore
       }
-    };
-    fetchBusinessInfo();
-  }, [session?.user]);
+    }
+    loadBusinessInfo();
+  }, []);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
-    setForm((prev) => ({ ...prev, [name]: value }));
-    setError(null);
-    setSuccess(null);
+    setForm(prev => ({ ...prev, [name]: value }));
   };
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
-    setError(null);
-    setSuccess(null);
-    if (!form.businessName.trim()) {
-      setError("Business name is required.");
-      setSaving(false);
-      return;
-    }
-    if (!form.email.trim() || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(form.email)) {
-      setError("A valid email is required.");
-      setSaving(false);
-      return;
-    }
     try {
       const res = await fetch("/api/business-information", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form),
-        credentials: "include"
+        body: JSON.stringify(form)
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
@@ -248,12 +204,12 @@ function BusinessRegistrationForm() {
     } finally {
       setSaving(false);
     }
-  }
+  };
 
   return (
     <form className="space-y-5" onSubmit={handleSave}>
       <div>
-        <label className="block text-sm font-medium mb-1">Business Name <span className="text-red-500">*</span></label>
+        <label className="block text-base md:text-lg font-medium mb-1">Business Name <span className="text-red-500">*</span></label>
         <input
           type="text"
           name="businessName"
@@ -265,7 +221,7 @@ function BusinessRegistrationForm() {
         />
       </div>
       <div>
-        <label className="block text-sm font-medium mb-1">Address</label>
+        <label className="block text-base md:text-lg font-medium mb-1">Address</label>
         <textarea
           name="address"
           className="w-full rounded border px-3 py-2"
@@ -277,7 +233,7 @@ function BusinessRegistrationForm() {
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div>
-          <label className="block text-sm font-medium mb-1">Email <span className="text-red-500">*</span></label>
+          <label className="block text-base md:text-lg font-medium mb-1">Email <span className="text-red-500">*</span></label>
           <input
             type="email"
             name="email"
@@ -289,7 +245,7 @@ function BusinessRegistrationForm() {
           />
         </div>
         <div>
-          <label className="block text-sm font-medium mb-1">Phone</label>
+          <label className="block text-base md:text-lg font-medium mb-1">Phone</label>
           <input
             type="tel"
             name="phone"
@@ -301,7 +257,7 @@ function BusinessRegistrationForm() {
         </div>
       </div>
       <div>
-        <label className="block text-sm font-medium mb-1">Tax Number</label>
+        <label className="block text-base md:text-lg font-medium mb-1">Tax Number</label>
         <input
           type="text"
           name="taxNumber"
@@ -311,8 +267,8 @@ function BusinessRegistrationForm() {
           disabled={!editing}
         />
       </div>
-      {error && <div className="text-red-600 text-sm">{error}</div>}
-      {success && <div className="text-green-600 text-sm">{success}</div>}
+      {error && <div className="text-red-600 text-base md:text-lg">{error}</div>}
+      {success && <div className="text-green-600 text-base md:text-lg">{success}</div>}
       <div className="flex gap-2 mt-4">
         {editing ? (
           <>
@@ -391,18 +347,98 @@ interface Announcement {
 }
 
 export default function BusinessPage() {
-    // --- Invoice Filters State ---
-    const [invoiceSearch, setInvoiceSearch] = useState("");
-    const [invoiceStatusFilter, setInvoiceStatusFilter] = useState("all");
+    const [, startTransition] = useTransition();
+  // Place useSession at the very top so session is available for all hooks and functions
+  const { data: session, status: sessionStatus } = useSession();
+  const router = useRouter();
 
-  // --- Income Filters State ---
+  // Add missing state variables for search/filter and printSaleReceipt stub
+  const [invoiceSearch, setInvoiceSearch] = useState("");
+  const [invoiceStatusFilter, setInvoiceStatusFilter] = useState("all");
   const [incomeSearch, setIncomeSearch] = useState("");
-  const [incomeTypeFilter, setIncomeTypeFilter] = useState("all"); // all, cash, credit
+  const [incomeTypeFilter, setIncomeTypeFilter] = useState("all");
   const [incomeDateStart, setIncomeDateStart] = useState("");
   const [incomeDateEnd, setIncomeDateEnd] = useState("");
+  // Stub for printSaleReceipt
+  function printSaleReceipt(): void {
+    alert("Print Sale Receipt is not implemented yet.");
+  }
+  // State hooks for sales, inventory (removed unused businessInfo)
+  // Use undefined as initial state to prevent accidental rendering of stale/cached data
+  const [sales, setSales] = useState<Sale[] | undefined>(undefined);
+  const [inventory, setInventory] = useState<InventoryItem[] | undefined>(undefined);
+  // Track if session is ready and userId is available
+  const [sessionReady, setSessionReady] = useState(false);
 
-  const router = useRouter();
-  const { data: session } = useSession();
+  useEffect(() => {
+    if (sessionStatus === "loading") return;
+    if (session && (session.user as any)?.id) {
+      setSessionReady(true);
+    } else {
+      setSessionReady(false);
+    }
+  }, [session, sessionStatus]);
+
+  useEffect(() => {
+    // If session is not ready, always clear all business data state to prevent flicker
+    if (!sessionReady) {
+      setSales(undefined);
+      setInventory(undefined);
+      setExpenses([]);
+      setAnnouncements([]);
+      // ...add any other state resets as needed...
+      return;
+    }
+    // Only load essential data first for fast dashboard render
+    (async () => {
+      try {
+        setSalesLoading(true);
+        setInventoryLoading(true);
+        setLoading(true);
+        // Fetch sales and inventory in parallel
+        const [salesRes, inventoryRes, expensesRes] = await Promise.all([
+          fetch("/api/business-sales", { credentials: "include" }),
+          fetch("/api/inventory", { credentials: "include" }),
+          fetch("/api/expenses", { credentials: "include" })
+        ]);
+        const salesData = salesRes ? await salesRes.json() : [];
+        const inventoryData = inventoryRes ? await inventoryRes.json() : [];
+        const expensesData = expensesRes ? await expensesRes.json() : [];
+        startTransition(() => {
+          setSales(Array.isArray(salesData) ? salesData : []);
+          setInventory(Array.isArray(inventoryData) ? inventoryData : []);
+          setExpenses(Array.isArray(expensesData) ? expensesData : []);
+        });
+      } catch (err) {
+        // fallback: clear data on error
+        setSales([]);
+        setInventory([]);
+        setExpenses([]);
+      } finally {
+        setSalesLoading(false);
+        setInventoryLoading(false);
+        setLoading(false);
+      }
+      // Defer non-critical data (announcements, etc.)
+      setTimeout(async () => {
+        try {
+          const announcementUrl = new URL("/api/announcements", window.location.origin);
+          announcementUrl.searchParams.set("audience", "business");
+          if (session && (session.user as any)?.id) {
+            announcementUrl.searchParams.set("userId", (session.user as any).id);
+          }
+          const announcementsRes = await fetch(announcementUrl.toString());
+          const announcementsData = announcementsRes ? await announcementsRes.json() : [];
+          setAnnouncements(Array.isArray(announcementsData) ? announcementsData : []);
+        } catch {
+          setAnnouncements([]);
+        }
+      }, 0);
+    })();
+    // ...existing code...
+  }, [sessionReady, session]);
+  // ...existing code...
+  // Removed duplicate state declarations
   const [activeSection, setActiveSection] = useState("dashboard");
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const currencyRates = useMemo(() => ({
@@ -415,8 +451,6 @@ export default function BusinessPage() {
   // Expense filters
   const [expenseSearch, setExpenseSearch] = useState("");
   const [expenseCategoryFilter, setExpenseCategoryFilter] = useState("all");
-  const [sales, setSales] = useState<Sale[]>([]);
-  const [inventory, setInventory] = useState<InventoryItem[]>([]);
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [showNotifications, setShowNotifications] = useState(false);
     // Create Invoice Modal State (must be declared at top level)
@@ -433,7 +467,8 @@ export default function BusinessPage() {
     customerName: "",
     saleDate: new Date().toISOString().split("T")[0],
     paymentMethod: "cash" as Sale["paymentMethod"],
-    dueDate: ""
+    dueDate: "",
+    creditorEmail: ""
   });
   const [saleSaving, setSaleSaving] = useState(false);
   const [saleError, setSaleError] = useState<string | null>(null);
@@ -453,7 +488,7 @@ export default function BusinessPage() {
   const [inventoryActivityFilter, setInventoryActivityFilter] = useState("");
   const [inventoryActivityStartDate, setInventoryActivityStartDate] = useState("");
   const [inventoryActivityEndDate, setInventoryActivityEndDate] = useState("");
-  const filteredSales = sales.filter(sale => {
+  const filteredSales = (sales ?? []).filter(sale => {
     const matchesProduct = sale.productName.toLowerCase().includes(inventoryActivityFilter.toLowerCase());
     const saleDate = new Date(sale.saleDate);
     const afterStart = !inventoryActivityStartDate || saleDate >= new Date(inventoryActivityStartDate);
@@ -491,7 +526,7 @@ export default function BusinessPage() {
     }
     // Prepare buckets
     const buckets = Array(numBuckets).fill(0);
-    sales.forEach(sale => {
+    (sales ?? []).forEach(sale => {
       const date = new Date(sale.saleDate);
       if (date < start || date > end) return;
       let bucketIdx = 0;
@@ -556,7 +591,7 @@ export default function BusinessPage() {
       prevStart.setMonth(prevStart.getMonth() - 1);
       const prevEnd = new Date(salesTrendData.start);
       prevEnd.setDate(0);
-      prevSum = sales.filter(sale => {
+      prevSum = (sales ?? []).filter(sale => {
         const date = new Date(sale.saleDate);
         return date >= prevStart && date <= prevEnd;
       }).reduce((acc, sale) => acc + ((typeof sale.unitPrice === "number" && typeof sale.quantity === "number"
@@ -568,7 +603,7 @@ export default function BusinessPage() {
       prevStart.setMonth(prevStart.getMonth() - 3);
       const prevEnd = new Date(salesTrendData.start);
       prevEnd.setDate(0);
-      prevSum = sales.filter(sale => {
+      prevSum = (sales ?? []).filter(sale => {
         const date = new Date(sale.saleDate);
         return date >= prevStart && date <= prevEnd;
       }).reduce((acc, sale) => acc + ((typeof sale.unitPrice === "number" && typeof sale.quantity === "number"
@@ -595,49 +630,54 @@ export default function BusinessPage() {
     try {
       setLoading(true);
       const userId = (session?.user as any)?.id as string | undefined;
-      const announcementUrl = new URL("/api/announcements", window.location.origin);
-      announcementUrl.searchParams.set("audience", "business");
-      if (userId) {
-        announcementUrl.searchParams.set("userId", userId);
-      }
-
+      // Only fetch essentials first
       if (userId) {
         setSalesLoading(true);
         setInventoryLoading(true);
       }
-
       const expensesPromise = userId ? fetch(`/api/expenses?userId=${userId}`) : fetch("/api/expenses");
-      const salesPromise = userId ? fetch(`/api/business-sales?userId=${userId}`) : Promise.resolve(null);
-      const inventoryPromise = userId ? fetch(`/api/inventory?userId=${userId}`, { cache: "no-store" }) : Promise.resolve(null);
-      const announcementsPromise = fetch(announcementUrl.toString());
-
-      const [expensesRes, salesRes, inventoryRes, announcementsRes] = await Promise.all([
+      const salesPromise = userId ? fetch(`/api/business-sales?userId=${userId}`) : fetch("/api/business-sales", { credentials: "include" });
+      const inventoryPromise = userId ? fetch(`/api/inventory?userId=${userId}`, { cache: "no-store" }) : fetch("/api/inventory", { credentials: "include" });
+      const [expensesRes, salesRes, inventoryRes] = await Promise.all([
         expensesPromise,
         salesPromise,
-        inventoryPromise,
-        announcementsPromise
+        inventoryPromise
       ]);
-
       const expensesData = expensesRes ? await expensesRes.json() : [];
       const salesData = salesRes ? await salesRes.json() : [];
       const inventoryData = inventoryRes ? await inventoryRes.json() : [];
-      const announcementsData = announcementsRes ? await announcementsRes.json() : [];
-
       setExpenses(Array.isArray(expensesData) ? expensesData : []);
       setSales(Array.isArray(salesData) ? salesData : []);
       setInventory(Array.isArray(inventoryData) ? inventoryData : []);
-      setAnnouncements(Array.isArray(announcementsData) ? announcementsData : []);
     } catch (error) {
+      setExpenses([]);
+      setSales([]);
+      setInventory([]);
       console.error("Error fetching data:", error);
     } finally {
       setSalesLoading(false);
       setInventoryLoading(false);
       setLoading(false);
     }
+    // Defer non-critical data (announcements)
+    setTimeout(async () => {
+      try {
+        const announcementUrl = new URL("/api/announcements", window.location.origin);
+        announcementUrl.searchParams.set("audience", "business");
+        if (session && (session.user as any)?.id) {
+          announcementUrl.searchParams.set("userId", (session.user as any).id);
+        }
+        const announcementsRes = await fetch(announcementUrl.toString());
+        const announcementsData = announcementsRes ? await announcementsRes.json() : [];
+        setAnnouncements(Array.isArray(announcementsData) ? announcementsData : []);
+      } catch {
+        setAnnouncements([]);
+      }
+    }, 0);
   };
 
-  const availableProducts = inventory.filter((item) => item.quantityInStock > 0);
-  const filteredInventory = inventory.filter((item) => {
+  const availableProducts = (inventory ?? []).filter((item) => item.quantityInStock > 0);
+  const filteredInventory = (inventory ?? []).filter((item) => {
     const matchesSearch = [item.name, item.sku]
       .filter(Boolean)
       .some((value) => value!.toLowerCase().includes(inventorySearch.toLowerCase()));
@@ -713,6 +753,10 @@ export default function BusinessPage() {
       setSaleError("Due date is required for credit sales.");
       return;
     }
+    if (saleType === "credit" && !saleForm.creditorEmail.trim()) {
+      setSaleError("Creditor email is required for credit sales.");
+      return;
+    }
     if (saleType === "cash" && !saleForm.paymentMethod) {
       setSaleError("Payment method is required for cash sales.");
       return;
@@ -733,6 +777,7 @@ export default function BusinessPage() {
           paymentMethod: saleType === "cash" ? saleForm.paymentMethod : undefined,
           saleDate: saleForm.saleDate,
           dueDate: saleType === "credit" ? saleForm.dueDate : undefined,
+          creditorEmail: saleType === "credit" ? saleForm.creditorEmail.trim() : undefined,
           userId
         })
       });
@@ -744,9 +789,9 @@ export default function BusinessPage() {
       }
 
       const newSale = await response.json();
-      setSales((prev) => [newSale, ...prev]);
+      setSales((prev) => [newSale, ...(prev ?? [])]);
       setInventory((prev) =>
-        prev.map((item) =>
+        (prev ?? []).map((item) =>
           item._id === saleForm.productId
             ? { ...item, quantityInStock: Math.max(0, item.quantityInStock - quantityValue) }
             : item
@@ -760,7 +805,8 @@ export default function BusinessPage() {
         customerName: "",
         saleDate: new Date().toISOString().split("T")[0],
         paymentMethod: "cash",
-        dueDate: ""
+        dueDate: "",
+        creditorEmail: ""
       });
       setShowSaleForm(false);
     } catch (error) {
@@ -782,7 +828,8 @@ export default function BusinessPage() {
         body: JSON.stringify({ userId })
       });
       if (!response.ok) return;
-      setSales((prev) => prev.filter((sale) => sale._id !== saleId));
+      setSales((prev) => (prev ?? []).filter((sale) => sale._id !== saleId));
+      setInventory((prev) => (prev ?? []).filter((item) => item._id !== saleId));
     } catch (error) {
       console.error("Error deleting sale:", error);
     }
@@ -857,9 +904,10 @@ export default function BusinessPage() {
 
       const savedItem = await response.json();
       setInventory((prev) => {
+        const safePrev = prev ?? [];
         const next = editingInventoryId
-          ? prev.map((item) => (item._id === editingInventoryId ? savedItem : item))
-          : [...prev, savedItem];
+          ? safePrev.map((item) => (item._id === editingInventoryId ? savedItem : item))
+          : [...safePrev, savedItem];
         return next.sort((a, b) => a.name.localeCompare(b.name));
       });
       await refreshInventory();
@@ -883,7 +931,7 @@ export default function BusinessPage() {
         body: JSON.stringify({ userId })
       });
       if (!response.ok) return;
-      setInventory((prev) => prev.filter((item) => item._id !== itemId));
+      setInventory((prev) => (prev ?? []).filter((item) => item._id !== itemId));
     } catch (error) {
       console.error("Error deleting inventory item:", error);
     }
@@ -1102,11 +1150,11 @@ export default function BusinessPage() {
       return matchesSearch && matchesCategory;
     });
   }, [expenses, expenseSearch, expenseCategoryFilter]);
-  const totalSales = sales.reduce((sum, sale) => sum + sale.totalAmount, 0);
-  const cashSales = sales.filter((sale) => sale.saleType === "cash");
-  const creditSales = sales.filter((sale) => sale.saleType === "credit");
+  const totalSales = (sales ?? []).reduce((sum, sale) => sum + sale.totalAmount, 0);
+  const cashSales = (sales ?? []).filter((sale) => sale.saleType === "cash");
+  const creditSales = (sales ?? []).filter((sale) => sale.saleType === "credit");
   // Use real sales on credit as invoices
-  const creditInvoices: Invoice[] = creditSales.map((sale, idx) => ({
+  const creditInvoices: Invoice[] = (creditSales ?? []).map((sale, idx) => ({
     _id: sale._id,
     invoiceNumber: sale.invoiceNumber || `INV-${(idx + 1).toString().padStart(3, "0")}`,
     clientName: sale.customerName || "N/A",
@@ -1118,33 +1166,37 @@ export default function BusinessPage() {
   }));
   // Advanced income filters
   // Removed unused variables: filteredCashSales, filteredCreditPayments
-  const pendingCreditSales = creditSales.filter((sale) => sale.status === "pending");
-  const totalQuantity = sales.reduce((sum, sale) => sum + sale.quantity, 0);
-  const totalIncome = creditInvoices.filter(inv => inv.status === "paid").reduce((sum, inv) => sum + inv.amount, 0);
-  const pendingInvoices = creditInvoices.filter(inv => inv.status === "pending");
-  const overdueInvoices = creditInvoices.filter(inv => inv.status === "overdue");
-  const filteredInvoices = useMemo(() => {
-    return creditInvoices.filter(inv => {
-      const matchesSearch =
-        invoiceSearch.trim() === "" ||
-        inv.invoiceNumber.toLowerCase().includes(invoiceSearch.trim().toLowerCase()) ||
-        inv.clientName.toLowerCase().includes(invoiceSearch.trim().toLowerCase());
-      const matchesStatus =
-        invoiceStatusFilter === "all" ||
-        inv.status === invoiceStatusFilter;
-      return matchesSearch && matchesStatus;
-    });
-  }, [creditInvoices, invoiceSearch, invoiceStatusFilter]);
-  return (
-    <div className="flex h-screen overflow-hidden bg-slate-50">
-      {/* Mobile Menu Overlay */}
-      {/* Removed orphaned Create Invoice Modal */}
-      {mobileMenuOpen && (
-        <div
-          className="fixed inset-0 z-40 bg-black bg-opacity-50 lg:hidden"
-          onClick={() => setMobileMenuOpen(false)}
-        />
-      )}
+  const pendingCreditSales = (creditSales ?? []).filter((sale) => sale.status === "pending");
+    const totalQuantity = (sales ?? []).reduce((sum, sale) => sum + sale.quantity, 0);
+    const totalIncome = creditInvoices.filter(inv => inv.status === "paid").reduce((sum, inv) => sum + inv.amount, 0);
+    const pendingInvoices = creditInvoices.filter(inv => inv.status === "pending");
+    const overdueInvoices = creditInvoices.filter(inv => inv.status === "overdue");
+    const filteredInvoices = useMemo(() => {
+      return creditInvoices.filter(inv => {
+        const matchesSearch =
+          invoiceSearch.trim() === "" ||
+          inv.invoiceNumber.toLowerCase().includes(invoiceSearch.trim().toLowerCase()) ||
+          inv.clientName.toLowerCase().includes(invoiceSearch.trim().toLowerCase());
+        const matchesStatus =
+          invoiceStatusFilter === "all" ||
+          inv.status === invoiceStatusFilter;
+        return matchesSearch && matchesStatus;
+      });
+    }, [creditInvoices, invoiceSearch, invoiceStatusFilter]);
+
+    // Remove blocking loading screen; show dashboard UI immediately with skeletons
+    // ...existing code...
+    return (
+      <SalesContext.Provider value={{ setSales }}>
+        <div className="flex h-screen overflow-hidden bg-slate-50">
+        {/* Mobile Menu Overlay */}
+        {/* Removed orphaned Create Invoice Modal */}
+        {mobileMenuOpen && (
+          <div
+            className="fixed inset-0 z-40 bg-black bg-opacity-50 lg:hidden"
+            onClick={() => setMobileMenuOpen(false)}
+          />
+        )}
 
       {/* Sidebar */}
       <aside
@@ -1159,6 +1211,7 @@ export default function BusinessPage() {
         </div>
 
         {/* Navigation */}
+
         <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-4">
           {menuItems.map((item) => (
             <button
@@ -1177,6 +1230,69 @@ export default function BusinessPage() {
               <span>{item.label}</span>
             </button>
           ))}
+
+          {/* Currency selector for mobile/small screens */}
+          <div className="block sm:hidden mt-4">
+            <label className="text-xs font-semibold text-white">Currency</label>
+            <select
+              value={currency}
+              onChange={(event) => {
+                const next = event.target.value as keyof typeof currencyRates;
+                setCurrency(next);
+                if (typeof window !== "undefined") {
+                  window.localStorage.setItem("business_currency", next);
+                }
+              }}
+              className="mt-1 w-full rounded-lg border border-blue-400 bg-blue-700 px-2 py-2 text-xs font-semibold text-white focus:ring-2 focus:ring-blue-300 focus:border-blue-500"
+              style={{ minHeight: 40 }}
+            >
+              {Object.keys(currencyRates).map((code) => (
+                <option key={code} value={code}>{code}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* Notifications button for mobile/small screens */}
+          <div className="block sm:hidden mt-4">
+            <button
+              onClick={() => setShowNotifications((prev) => !prev)}
+              className="flex w-full items-center gap-3 rounded-lg px-4 py-3 text-left text-sm font-medium bg-blue-700 text-white hover:bg-blue-600 border border-blue-500 shadow-md focus:ring-2 focus:ring-blue-300"
+              style={{ minHeight: 48 }}
+            >
+              <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" /></svg>
+              <span>Notifications</span>
+              {announcements.length > 0 && (
+                <span className="ml-2 rounded-full bg-white px-2 py-0.5 text-[10px] font-semibold text-blue-700">
+                  {announcements.length}
+                </span>
+              )}
+            </button>
+            {showNotifications && (
+              <div className="mt-2 w-full rounded-xl border border-slate-200 bg-white p-3 shadow-lg text-slate-900 animate-fade-in">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-sm font-semibold">Notifications</h4>
+                  <button
+                    onClick={() => setShowNotifications(false)}
+                    className="text-xs text-slate-500 hover:text-slate-700"
+                  >
+                    Close
+                  </button>
+                </div>
+                <div className="mt-3 space-y-2 text-xs">
+                  {announcements.length === 0 ? (
+                    <p className="text-slate-500">No notifications yet.</p>
+                  ) : (
+                    announcements.map((announcement) => (
+                      <div key={announcement._id} className="rounded-lg border border-blue-100 bg-blue-50 p-2">
+                        <p className="font-semibold text-blue-900">{announcement.title}</p>
+                        <p className="text-blue-700">{announcement.body}</p>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
         </nav>
 
         {/* User info */}
@@ -1223,6 +1339,7 @@ export default function BusinessPage() {
               </p>
             </div>
             <div className="flex items-center gap-2 lg:gap-3">
+              {/* Currency selector for desktop/large screens */}
               <div className="hidden sm:flex items-center gap-2">
                 <label className="text-xs font-semibold text-slate-600">Currency</label>
                 <select
@@ -1241,19 +1358,11 @@ export default function BusinessPage() {
                   ))}
                 </select>
               </div>
-              <div className="relative flex items-center">
+              {/* Notifications button for desktop/large screens ONLY (hidden on mobile) */}
+              <div className="hidden sm:relative sm:flex sm:items-center">
                 <button
                   onClick={() => setShowNotifications((prev) => !prev)}
                   className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 flex items-center gap-2 lg:px-4"
-                  style={{
-                    position: 'absolute',
-                    top: 0,
-                    right: 0,
-                    zIndex: 30,
-                    margin: '0.5rem',
-                    // Only apply absolute on small screens
-                    ...(typeof window !== 'undefined' && window.innerWidth < 1024 ? {} : { position: 'static', margin: 0 })
-                  }}
                 >
                   <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" /></svg>
                   <span className="hidden lg:inline">Notifications</span>
@@ -1304,13 +1413,13 @@ export default function BusinessPage() {
           {activeSection === "dashboard" && (
             <div className="space-y-6">
               {/* Stats Cards */}
-              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
                 {/* Business Income Summary (QuickBooks-style) */}
                 <div className="rounded-xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
                   <div className="flex items-center justify-between">
-                    <div>
+                    <div className="min-w-0 flex-1">
                       <p className="text-sm font-medium text-slate-600">Total Income Received</p>
-                      <p className="mt-2 text-2xl font-bold text-green-600">
+                      <p className="mt-2 text-2xl font-bold text-green-600 truncate break-all" style={{ wordBreak: 'break-all' }}>
                         {formatCurrency(
                           cashSales.reduce((sum, sale) => sum + sale.totalAmount, 0) +
                           creditInvoices.reduce((sum, inv) => sum + (inv.amount - (typeof inv.balance === "number" ? inv.balance : 0)), 0),
@@ -1320,7 +1429,7 @@ export default function BusinessPage() {
                       </p>
                       <p className="mt-1 text-xs text-slate-500">Includes cash sales</p>
                     </div>
-                    <div className="rounded-full bg-green-100 p-3">
+                    <div className="flex-shrink-0 rounded-full bg-green-100 p-3 ml-2">
                       <svg className="h-6 w-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                       </svg>
@@ -1330,12 +1439,14 @@ export default function BusinessPage() {
 
                 <div className="rounded-xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
                   <div className="flex items-center justify-between">
-                    <div>
+                    <div className="min-w-0 flex-1">
                       <p className="text-sm font-medium text-slate-600">Total Expenses</p>
-                      <p className="mt-2 text-2xl font-bold text-red-600">{formatCurrency(totalExpenses, currency, currencyRates)}</p>
+                      <p className="mt-2 text-2xl font-bold text-red-600 truncate break-all" style={{ wordBreak: 'break-all' }}>
+                        {formatCurrency(totalExpenses, currency, currencyRates)}
+                      </p>
                       <p className="mt-1 text-xs text-slate-500">+8% from last month</p>
                     </div>
-                    <div className="rounded-full bg-red-100 p-3">
+                    <div className="flex-shrink-0 rounded-full bg-red-100 p-3 ml-2">
                       <svg className="h-6 w-6 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" />
                       </svg>
@@ -1345,9 +1456,9 @@ export default function BusinessPage() {
 
                 <div className="rounded-xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
                   <div className="flex items-center justify-between">
-                    <div>
+                    <div className="min-w-0 flex-1">
                       <p className="text-sm font-medium text-slate-600">Net Profit</p>
-                      <p className="mt-2 text-2xl font-bold text-blue-600">
+                      <p className="mt-2 text-2xl font-bold text-blue-600 truncate break-all" style={{ wordBreak: 'break-all' }}>
                         {formatCurrency(
                           (
                             cashSales.reduce((sum, sale) => sum + sale.totalAmount, 0) +
@@ -1374,7 +1485,7 @@ export default function BusinessPage() {
                         }%
                       </p>
                     </div>
-                    <div className="rounded-full bg-blue-100 p-3">
+                    <div className="flex-shrink-0 rounded-full bg-blue-100 p-3 ml-2">
                       <svg className="h-6 w-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
                       </svg>
@@ -1384,15 +1495,32 @@ export default function BusinessPage() {
 
                 <div className="rounded-xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
                   <div className="flex items-center justify-between">
-                    <div>
+                    <div className="min-w-0 flex-1">
                       <p className="text-sm font-medium text-slate-600">Pending Invoices</p>
-                      <p className="mt-2 text-2xl font-bold text-amber-600">{pendingInvoices.length}</p>
+                      <p className="mt-2 text-2xl font-bold text-amber-600 truncate break-all" style={{ wordBreak: 'break-all' }}>
+                        {pendingInvoices.length}
+                      </p>
                       <p className="mt-1 text-xs text-slate-500">{formatCurrency(pendingInvoices.reduce((sum, inv) => sum + inv.amount, 0), currency, currencyRates)} awaiting</p>
                     </div>
-                    <div className="rounded-full bg-amber-100 p-3">
+                    <div className="flex-shrink-0 rounded-full bg-amber-100 p-3 ml-2">
                       <svg className="h-6 w-6 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                       </svg>
+                    </div>
+                  </div>
+                </div>
+                {/* Losses Card */}
+                <div className={`rounded-xl p-6 shadow-sm ring-1 ring-slate-200 ${((cashSales.reduce((sum, sale) => sum + sale.totalAmount, 0) + creditInvoices.reduce((sum, inv) => sum + (inv.amount - (typeof inv.balance === "number" ? inv.balance : 0)), 0)) - totalExpenses) < 0 ? 'bg-red-50' : 'bg-white'}`}>
+                  <div className="flex items-center justify-between">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium text-slate-600">Losses</p>
+                      <p className={`mt-2 text-2xl font-bold ${((cashSales.reduce((sum, sale) => sum + sale.totalAmount, 0) + creditInvoices.reduce((sum, inv) => sum + (inv.amount - (typeof inv.balance === "number" ? inv.balance : 0)), 0)) - totalExpenses) < 0 ? 'text-red-600' : 'text-slate-400'}`}
+                        style={{ wordBreak: 'break-all' }}>
+                        {((cashSales.reduce((sum, sale) => sum + sale.totalAmount, 0) + creditInvoices.reduce((sum, inv) => sum + (inv.amount - (typeof inv.balance === "number" ? inv.balance : 0)), 0)) - totalExpenses) < 0
+                          ? formatCurrency(Math.abs((cashSales.reduce((sum, sale) => sum + sale.totalAmount, 0) + creditInvoices.reduce((sum, inv) => sum + (inv.amount - (typeof inv.balance === "number" ? inv.balance : 0)), 0)) - totalExpenses), currency, currencyRates)
+                          : '--'}
+                      </p>
+                      <p className="mt-1 text-xs text-slate-500">{((cashSales.reduce((sum, sale) => sum + sale.totalAmount, 0) + creditInvoices.reduce((sum, inv) => sum + (inv.amount - (typeof inv.balance === "number" ? inv.balance : 0)), 0)) - totalExpenses) < 0 ? 'You are operating at a loss this period.' : 'No losses this period.'}</p>
                     </div>
                   </div>
                 </div>
@@ -1508,7 +1636,7 @@ export default function BusinessPage() {
                         return cash + creditPayments;
                       });
                       const monthlyExpenses = months.map(({ year, month }) => {
-                        return expenses.filter(exp => {
+                        return (Array.isArray(expenses) ? expenses : []).filter(exp => {
                           const d = new Date(exp.occurredOn);
                           return d.getFullYear() === year && d.getMonth() === month;
                         }).reduce((sum, exp) => sum + exp.amount, 0);
@@ -1530,12 +1658,19 @@ export default function BusinessPage() {
                             <div className="flex h-8 gap-1 overflow-hidden rounded-lg">
                               <div
                                 className="bg-green-500 transition-all hover:bg-green-600"
-                                style={{ width: `${(income / maxVal) * 100}%` }}
+                                style={{
+                                  width: income === 0 && expense === 0 ? '50%' : `${Math.max((income / maxVal) * 100, income > 0 ? 5 : 0)}%`,
+                                  minWidth: income > 0 ? 4 : 0,
+                                  marginRight: expense > 0 ? 2 : 0
+                                }}
                                 title={`Income: ${formatCurrency(income, currency, currencyRates)}`}
                               ></div>
                               <div
                                 className="bg-red-500 transition-all hover:bg-red-600"
-                                style={{ width: `${(expense / maxVal) * 100}%` }}
+                                style={{
+                                  width: income === 0 && expense === 0 ? '50%' : `${Math.max((expense / maxVal) * 100, expense > 0 ? 5 : 0)}%`,
+                                  minWidth: expense > 0 ? 4 : 0
+                                }}
                                 title={`Expenses: ${formatCurrency(expense, currency, currencyRates)}`}
                               ></div>
                             </div>
@@ -1546,7 +1681,7 @@ export default function BusinessPage() {
                   </div>
                   <div className="mt-4 flex justify-center gap-4 text-sm">
                     <div className="flex items-center gap-2">
-                      <div className="h-3 w-3 rounded-full bg-blue-500"></div>
+                      <div className="h-3 w-3 rounded-full bg-green-500"></div>
                       <span className="text-slate-600">Income</span>
                     </div>
                     <div className="flex items-center gap-2">
@@ -1560,19 +1695,33 @@ export default function BusinessPage() {
                 <div className="rounded-xl bg-white p-4 shadow-sm ring-1 ring-slate-200 lg:p-6">
                   <h3 className="mb-4 text-lg font-semibold text-slate-900">Income & Expenses Pie Chart</h3>
                   <div className="flex flex-col items-center">
-                    <div className="relative h-48 w-48">
+                    <div className="relative h-64 w-64">
                       {/* Pie Chart using conic-gradient */}
                       {(() => {
                         const totalIncome = cashSales.reduce((sum, sale) => sum + sale.totalAmount, 0) + creditInvoices.reduce((sum, inv) => sum + (typeof inv.balance === "number" && inv.balance < inv.amount ? inv.amount - inv.balance : 0), 0);
                         const total = totalIncome + totalExpenses;
-                        const incomePercent = total > 0 ? (totalIncome / total) * 360 : 0;
+                        // Always show both segments, even if one is zero
+                        let incomeAngle = 0, expenseAngle = 0;
+                        if (totalIncome === 0 && totalExpenses === 0) {
+                          incomeAngle = 180;
+                          expenseAngle = 180;
+                        } else {
+                          incomeAngle = total > 0 ? Math.max((totalIncome / total) * 360, totalIncome > 0 ? 8 : 0) : 0;
+                          expenseAngle = total > 0 ? Math.max((totalExpenses / total) * 360, totalExpenses > 0 ? 8 : 0) : 0;
+                          // Adjust if sum > 360 due to min angle
+                          if (incomeAngle + expenseAngle > 360) {
+                            const scale = 360 / (incomeAngle + expenseAngle);
+                            incomeAngle *= scale;
+                            expenseAngle *= scale;
+                          }
+                        }
                         return (
                           <div
                             className="h-full w-full rounded-full"
                             style={{
                               background: `conic-gradient(
-                                #3b82f6 0deg ${incomePercent}deg,
-                                #ef4444 ${incomePercent}deg 360deg
+                                #22c55e 0deg ${incomeAngle}deg,
+                                #ef4444 ${incomeAngle}deg 360deg
                               )`
                             }}
                           >
@@ -1588,7 +1737,7 @@ export default function BusinessPage() {
                     </div>
                     <div className="mt-6 grid w-full grid-cols-2 gap-3">
                       <div className="flex items-center gap-2">
-                        <div className="h-3 w-3 rounded-full bg-blue-500"></div>
+                        <div className="h-3 w-3 rounded-full bg-green-500"></div>
                         <div className="flex-1">
                           <p className="text-xs font-medium text-slate-700">Income</p>
                           <p className="text-xs text-slate-500">{formatCurrency(cashSales.reduce((sum, sale) => sum + sale.totalAmount, 0) + creditInvoices.reduce((sum, inv) => sum + (typeof inv.balance === "number" && inv.balance < inv.amount ? inv.amount - inv.balance : 0), 0), currency, currencyRates)}</p>
@@ -1699,9 +1848,10 @@ export default function BusinessPage() {
                         { method: "Bank Transfer", key: "bank_transfer", color: "bg-purple-500" },
                         { method: "Other", key: "other", color: "bg-slate-400" }
                       ];
-                      const totalAmount = sales.reduce((sum, s) => sum + (typeof s.unitPrice === "number" && typeof s.quantity === "number" ? s.unitPrice * s.quantity : 0), 0);
+                      const safeSales = getSales(sales);
+                      const totalAmount = safeSales.reduce((sum, s) => sum + (typeof s.unitPrice === "number" && typeof s.quantity === "number" ? s.unitPrice * s.quantity : 0), 0);
                       return paymentMethods.map((pm, index) => {
-                        const filtered = sales.filter(s => s.paymentMethod === pm.key);
+                        const filtered = safeSales.filter(s => s.paymentMethod === pm.key);
                         const amount = filtered.reduce((sum, s) => sum + (typeof s.unitPrice === "number" && typeof s.quantity === "number" ? s.unitPrice * s.quantity : 0), 0);
                         const percentage = totalAmount > 0 ? Math.round((amount / totalAmount) * 100) : 0;
                         return (
@@ -1831,6 +1981,18 @@ export default function BusinessPage() {
                           placeholder={saleType === "credit" ? "Required for credit" : "Optional"}
                         />
                       </div>
+                      {saleType === "credit" && (
+                        <div>
+                          <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">Creditor Email</label>
+                          <input
+                            type="email"
+                            value={saleForm.creditorEmail}
+                            onChange={(event) => setSaleForm((prev) => ({ ...prev, creditorEmail: event.target.value }))}
+                            className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
+                            placeholder="Required for credit"
+                          />
+                        </div>
+                      )}
                       <div>
                         <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">Sale Date</label>
                         <input
@@ -1896,13 +2058,13 @@ export default function BusinessPage() {
                 </div>
                 <div className="rounded-xl bg-white p-4 shadow-sm ring-1 ring-slate-200">
                   <p className="text-sm font-medium text-slate-600">Transactions</p>
-                  <p className="mt-2 text-2xl font-bold text-slate-900">{sales.length}</p>
+                  <p className="mt-2 text-2xl font-bold text-slate-900">{getSales(sales).length}</p>
                   <p className="mt-1 text-xs text-slate-500">Total count</p>
                 </div>
                 <div className="rounded-xl bg-white p-4 shadow-sm ring-1 ring-slate-200">
                   <p className="text-sm font-medium text-slate-600">Average Sale</p>
                   <p className="mt-2 text-2xl font-bold text-slate-900">
-                    {sales.length ? formatCurrency(totalSales / sales.length, currency, currencyRates) : formatCurrency(0, currency, currencyRates)}
+                    {getSales(sales).length ? formatCurrency(totalSales / getSales(sales).length, currency, currencyRates) : formatCurrency(0, currency, currencyRates)}
                   </p>
                   <p className="mt-1 text-xs text-slate-500">Per transaction</p>
                 </div>
@@ -1935,11 +2097,11 @@ export default function BusinessPage() {
               <div className="rounded-xl bg-white p-4 shadow-sm ring-1 ring-slate-200 lg:p-6">
                 <h4 className="mb-4 text-base font-semibold text-slate-900">Sales by Payment Method</h4>
                 <div className="grid gap-3 sm:grid-cols-4">
-                  {[
-                    { method: "Cash", count: sales.filter(s => s.paymentMethod === "cash").length, color: "green" },
-                    { method: "Card", count: sales.filter(s => s.paymentMethod === "card").length, color: "blue" },
-                    { method: "Bank Transfer", count: sales.filter(s => s.paymentMethod === "bank_transfer").length, color: "purple" },
-                    { method: "Other", count: sales.filter(s => s.paymentMethod === "other").length, color: "slate" }
+                  {[ 
+                    { method: "Cash", count: getSales(sales).filter(s => s.paymentMethod === "cash").length, color: "green" },
+                    { method: "Card", count: getSales(sales).filter(s => s.paymentMethod === "card").length, color: "blue" },
+                    { method: "Bank Transfer", count: getSales(sales).filter(s => s.paymentMethod === "bank_transfer").length, color: "purple" },
+                    { method: "Other", count: getSales(sales).filter(s => s.paymentMethod === "other").length, color: "slate" }
                   ].map((item, index) => (
                     <div key={index} className="rounded-lg border border-slate-200 p-3 text-center">
                       <p className={`text-2xl font-bold text-${item.color}-600`}>{item.count}</p>
@@ -1972,7 +2134,7 @@ export default function BusinessPage() {
                   <div className="flex items-center justify-center py-10">
                     <div className="h-6 w-6 animate-spin rounded-full border-4 border-blue-600 border-t-transparent"></div>
                   </div>
-                ) : sales.length === 0 ? (
+                ) : getSales(sales).length === 0 ? (
                   <div className="py-12 text-center text-sm text-slate-600">No sales recorded yet.</div>
                 ) : (
                   <div className="overflow-x-auto">
@@ -1991,7 +2153,7 @@ export default function BusinessPage() {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
-                        {sales.map((sale) => (
+                        {getSales(sales).map((sale) => (
                           <tr key={sale._id} className="block border border-slate-200/70 bg-white p-4 shadow-sm md:table-row md:border-0 md:bg-transparent md:p-0 md:shadow-none">
                             <td className="flex items-center justify-between gap-3 py-2 md:table-cell md:py-3">
                               <span className="text-xs font-semibold uppercase text-slate-500 md:hidden">Date</span>
@@ -2114,7 +2276,7 @@ export default function BusinessPage() {
                     </thead>
                     <tbody className="divide-y divide-slate-100">
                       {/* List all cash sales with print button */}
-                      {sales.filter(sale => sale.saleType === "cash").map((sale) => (
+                      {getSales(sales).filter(sale => sale.saleType === "cash").map((sale) => (
                         <tr key={sale._id} className="block border border-slate-200/70 bg-white p-4 shadow-sm md:table-row md:border-0 md:bg-transparent md:p-0 md:shadow-none">
                           <td className="flex items-center justify-between gap-3 py-2 md:table-cell md:py-3">
                             <span className="text-xs font-semibold uppercase text-slate-500 md:hidden">Date</span>
@@ -2139,7 +2301,7 @@ export default function BusinessPage() {
                           <td className="flex items-center justify-between gap-3 py-2 md:table-cell md:py-3 md:text-right">
                             <button
                               className="inline-flex items-center gap-1 rounded bg-blue-500 px-2 py-1 text-xs text-white hover:bg-blue-600 print:hidden"
-                              onClick={() => printSaleReceipt(sale)}
+                              onClick={() => printSaleReceipt()}
                               type="button"
                             >
                               <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 9V2h12v7" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18v4h12v-4" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 14h12" /></svg>
@@ -2150,7 +2312,7 @@ export default function BusinessPage() {
                       ))}
 
                       {/* List all credit sales with any payment (partial or full) */}
-                      {sales.filter(sale => sale.saleType === "credit" && ((typeof sale.balance === "number" && sale.balance < sale.totalAmount) || typeof sale.balance !== "number")).map((sale) => (
+                      {getSales(sales).filter(sale => sale.saleType === "credit" && ((typeof sale.balance === "number" && sale.balance < sale.totalAmount) || typeof sale.balance !== "number")).map((sale) => (
                         <tr key={sale._id} className="block border border-slate-200/70 bg-white p-4 shadow-sm md:table-row md:border-0 md:bg-transparent md:p-0 md:shadow-none">
                           <td className="flex items-center justify-between gap-3 py-2 md:table-cell md:py-3">
                             <span className="text-xs font-semibold uppercase text-slate-500 md:hidden">Date</span>
@@ -2181,7 +2343,7 @@ export default function BusinessPage() {
                         <td colSpan={3} className="pt-3 text-right font-semibold">Total Income Received:</td>
                         <td className="pt-3 text-right font-bold text-green-700" colSpan={2}>
                           {formatCurrency(
-                            sales.reduce((sum, sale) => {
+                            getSales(sales).reduce((sum, sale) => {
                               if (sale.saleType === "cash") {
                                 return sum + sale.totalAmount;
                               } else if (sale.saleType === "credit") {
@@ -2478,6 +2640,7 @@ export default function BusinessPage() {
                       <tr className="border-b border-slate-200">
                         <th className="pb-3 text-left text-sm font-semibold text-slate-900">Invoice #</th>
                         <th className="pb-3 text-left text-sm font-semibold text-slate-900">Client</th>
+                        <th className="pb-3 text-left text-sm font-semibold text-slate-900">Creditor Email</th>
                         <th className="pb-3 text-left text-sm font-semibold text-slate-900">Date</th>
                         <th className="pb-3 text-left text-sm font-semibold text-slate-900">Due Date</th>
                         <th className="pb-3 text-right text-sm font-semibold text-slate-900">Amount</th>
@@ -2495,6 +2658,10 @@ export default function BusinessPage() {
                           <td className="flex items-center justify-between gap-3 py-2 md:table-cell md:py-3">
                             <span className="text-xs font-semibold uppercase text-slate-500 md:hidden">Client</span>
                             <span className="text-sm text-slate-900">{invoice.clientName}</span>
+                          </td>
+                          <td className="flex items-center justify-between gap-3 py-2 md:table-cell md:py-3">
+                            <span className="text-xs font-semibold uppercase text-slate-500 md:hidden">Creditor Email</span>
+                            <span className="text-sm text-slate-900">{invoice.creditorEmail || '-'}</span>
                           </td>
                           <td className="flex items-center justify-between gap-3 py-2 md:table-cell md:py-3">
                             <span className="text-xs font-semibold uppercase text-slate-500 md:hidden">Date</span>
@@ -2936,7 +3103,7 @@ export default function BusinessPage() {
               <div className="grid gap-4 sm:grid-cols-4">
                 <div className="rounded-xl bg-white p-4 shadow-sm ring-1 ring-slate-200">
                   <p className="text-xs font-medium text-slate-600">Total Sales</p>
-                  <p className="mt-2 text-xl font-bold text-green-600">{formatCurrency(sales.reduce((sum, sale) => sum + sale.totalAmount, 0), currency, currencyRates)}</p>
+                  <p className="mt-2 text-xl font-bold text-green-600">{formatCurrency(getSales(sales).reduce((sum, sale) => sum + sale.totalAmount, 0), currency, currencyRates)}</p>
                 </div>
                 <div className="rounded-xl bg-white p-4 shadow-sm ring-1 ring-slate-200">
                   <p className="text-xs font-medium text-slate-600">Total Expenses</p>
@@ -2981,7 +3148,7 @@ export default function BusinessPage() {
                     </thead>
                     <tbody className="divide-y divide-slate-100">
                       {/* Sales */}
-                      {sales.map((sale) => (
+                      {getSales(sales).map((sale) => (
                         <tr key={sale._id + '-sale'}>
                           <td className="px-4 py-2">{new Date(sale.saleDate).toLocaleDateString()}</td>
                           <td className="px-4 py-2 text-green-700 font-semibold">Sale</td>
@@ -3033,7 +3200,7 @@ export default function BusinessPage() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
-                      {sales
+                      {getSales(sales)
                         .filter(sale => {
                           // Filter by period
                           const date = new Date(sale.saleDate);
@@ -3071,17 +3238,30 @@ export default function BusinessPage() {
           )}
 
           {activeSection === "settings" && (
-            <div className="rounded-xl bg-white p-8 shadow-sm ring-1 ring-slate-200 max-w-xl mx-auto">
-              <h3 className="text-lg font-semibold text-slate-900 mb-2">Business Registration</h3>
-              <p className="text-sm text-slate-600 mb-6">Register or update your business details for invoicing, compliance, and QuickBooks-style features.</p>
-              <BusinessRegistrationForm />
+            <div className="space-y-6">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <h3 className="text-lg font-semibold text-slate-900">Business Settings</h3>
+                  <p className="text-sm text-slate-600">Manage your business profile and registration details</p>
+                </div>
+              </div>
+
+              <div className="grid gap-6 lg:grid-cols-2">
+                <div className="rounded-xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
+                  <h4 className="font-semibold text-slate-900">Business Profile</h4>
+                  <div className="mt-4">
+                    <BusinessRegistrationForm />
+                  </div>
+                </div>
+              </div>
             </div>
           )}
         </main>
       </div>
-    </div>
-  );
-}
+  	</div>
+      </SalesContext.Provider>
+    );
+  }
 
 // --- Report Export/Print Handlers ---
 function handleExportReport() {

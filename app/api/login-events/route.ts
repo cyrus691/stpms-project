@@ -1,3 +1,4 @@
+export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { getConnection } from "@/lib/prisma";
 import { getLoginEventModel } from "@/lib/models/LoginEvent";

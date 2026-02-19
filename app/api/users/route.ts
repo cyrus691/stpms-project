@@ -1,6 +1,8 @@
+export const dynamic = "force-dynamic";
+import connectDB from '@/lib/mongoose';
+import mongoose from 'mongoose';
 import bcrypt from "bcryptjs";
 import { NextResponse } from "next/server";
-import { getConnection } from "@/lib/prisma";
 import { getUserModel } from "@/lib/models/User";
 import { getTaskModel } from "@/lib/models/Task";
 import { getExpenseModel } from "@/lib/models/Expense";
@@ -8,49 +10,35 @@ import type { Role } from "@/lib/auth";
 import { logAuditEvent } from "@/lib/audit";
 
 export async function GET(request: Request) {
+  await connectDB();
   try {
-    const conn = await getConnection();
-    const User = getUserModel(conn);
-    const Task = getTaskModel(conn);
-    const Expense = getExpenseModel(conn);
-    
+    const User = getUserModel(mongoose.connection);
+    const Task = getTaskModel(mongoose.connection);
+    const Expense = getExpenseModel(mongoose.connection);
     const { searchParams } = new URL(request.url);
     const role = searchParams.get("role");
-    
-    // Build query filter
     const query: any = {};
     if (role && ["student", "business", "admin"].includes(role)) {
       query.role = role;
     }
-    
-    // Use lean() for faster queries (returns plain objects instead of Mongoose documents)
     const users = await User.find(query)
       .limit(100)
       .select("_id username email phone name role status createdAt updatedAt")
       .lean()
       .exec();
-    
-    // Optimize: Get all counts in parallel with aggregation
     const userIds = users.map(u => u._id);
-    
     const [taskCounts, expenseTotals] = await Promise.all([
-      // Get task counts for all users at once
       Task.aggregate([
         { $match: { userId: { $in: userIds } } },
         { $group: { _id: "$userId", count: { $sum: 1 } } }
       ]),
-      // Get expense totals for business users only
       Expense.aggregate([
         { $match: { userId: { $in: userIds } } },
         { $group: { _id: "$userId", total: { $sum: "$amount" } } }
       ])
     ]);
-    
-    // Create lookup maps for O(1) access
     const taskCountMap = new Map(taskCounts.map((t: any) => [t._id.toString(), t.count]));
     const expenseMap = new Map(expenseTotals.map((e: any) => [e._id.toString(), e.total]));
-    
-    // Map users with their data
     const usersWithData = users.map((user) => ({
       _id: user._id,
       username: user.username,
@@ -63,12 +51,12 @@ export async function GET(request: Request) {
       status: user.status || "Active",
       createdAt: user.createdAt
     }));
-    
     return NextResponse.json(usersWithData);
   } catch (error) {
     console.error("Error fetching users:", error);
     return NextResponse.json({ error: "Failed to fetch users" }, { status: 500 });
   }
+//
 }
 
 export async function POST(request: Request) {
@@ -78,8 +66,8 @@ export async function POST(request: Request) {
   }
   
   const hashed = await bcrypt.hash(password, 10);
-  const conn = await getConnection();
-  const User = getUserModel(conn);
+  await connectDB();
+  const User = getUserModel(mongoose.connection);
   
   const user = await User.create({
     username,
@@ -109,8 +97,8 @@ export async function PUT(request: Request) {
       return NextResponse.json({ error: "User ID is required" }, { status: 400 });
     }
 
-    const conn = await getConnection();
-    const User = getUserModel(conn);
+    await connectDB();
+    const User = getUserModel(mongoose.connection);
     
     const updateData: any = {};
     if (username !== undefined) {
@@ -202,10 +190,10 @@ export async function DELETE(request: Request) {
       return NextResponse.json({ error: "User ID is required" }, { status: 400 });
     }
 
-    const conn = await getConnection();
-    const User = getUserModel(conn);
-    const Task = getTaskModel(conn);
-    const Expense = getExpenseModel(conn);
+    await connectDB();
+    const User = getUserModel(mongoose.connection);
+    const Task = getTaskModel(mongoose.connection);
+    const Expense = getExpenseModel(mongoose.connection);
     
     // Delete associated data first
     await Task.deleteMany({ userId });

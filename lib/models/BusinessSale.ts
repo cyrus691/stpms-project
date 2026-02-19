@@ -20,6 +20,7 @@ export interface IBusinessSale extends Document {
   status: "paid" | "pending";
   userId: Types.ObjectId;
   payments: IPayment[];
+  creditorEmail?: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -43,7 +44,8 @@ const businessSaleSchema = new Schema<IBusinessSale>({
   dueDate: { type: Date },
   status: { type: String, enum: ["paid", "pending"], default: "paid" },
   userId: { type: Schema.Types.ObjectId, required: true, ref: "User" },
-  payments: { type: [paymentSchema], default: [] }
+  payments: { type: [paymentSchema], default: [] },
+  creditorEmail: { type: String },
 }, { timestamps: true, collection: "business_sales" });
 
 businessSaleSchema.virtual("balance").get(function () {

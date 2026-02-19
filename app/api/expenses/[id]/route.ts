@@ -1,9 +1,10 @@
-import { NextResponse } from "next/server";
+import { NextResponse, NextRequest } from "next/server";
 import { getConnection } from "@/lib/prisma";
 import { getExpenseModel } from "@/lib/models/Expense";
 
-export async function PATCH(request: Request, { params }: { params: { id: string } }) {
-  const { id } = params;
+export async function PATCH(request: NextRequest, context: { params: Promise<{ id: string }> }) {
+  const resolvedParams = await context.params;
+  const { id } = resolvedParams;
   const body = await request.json();
   const update: any = {};
   if (body.label !== undefined) update.label = body.label;
@@ -28,8 +29,9 @@ export async function PATCH(request: Request, { params }: { params: { id: string
   return NextResponse.json(updated);
 }
 
-export async function DELETE(request: Request, { params }: { params: { id: string } }) {
-  const { id } = params;
+export async function DELETE(request: NextRequest, context: { params: Promise<{ id: string }> }) {
+  const resolvedParams = await context.params;
+  const { id } = resolvedParams;
   const conn = await getConnection();
   const Expense = getExpenseModel(conn);
   const deleted = await Expense.findByIdAndDelete(id);

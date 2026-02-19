@@ -1,10 +1,11 @@
-import { NextResponse } from "next/server";
+
+import { NextRequest, NextResponse } from "next/server";
 import { getConnection } from "@/lib/prisma";
 import { getBusinessSaleModel } from "@/lib/models/BusinessSale";
 import { Types } from "mongoose";
 
-export async function POST(request: Request, { params }: { params: { id: string } }) {
-  const saleId = params.id;
+export async function POST(request: NextRequest, context: { params: Promise<{ id: string }> }) {
+  const { id: saleId } = await context.params;
   if (!Types.ObjectId.isValid(saleId)) {
     return NextResponse.json({ error: "Invalid sale id" }, { status: 400 });
   }
@@ -24,6 +25,14 @@ export async function POST(request: Request, { params }: { params: { id: string 
   const paid = sale.payments.reduce((sum, p) => sum + p.amount, 0);
   if (paid >= sale.totalAmount) {
     sale.status = "paid";
+    // If all payments use the same method, set paymentMethod to that method; otherwise, set to 'other'
+    const allMethods = sale.payments.map(p => p.method);
+    const uniqueMethods = Array.from(new Set(allMethods));
+    if (uniqueMethods.length === 1) {
+      sale.paymentMethod = uniqueMethods[0];
+    } else {
+      sale.paymentMethod = "other";
+    }
   } else {
     sale.status = "pending";
   }

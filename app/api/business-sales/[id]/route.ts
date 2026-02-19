@@ -1,12 +1,12 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { Types } from "mongoose";
 import { getConnection } from "@/lib/prisma";
 import { getBusinessSaleModel } from "@/lib/models/BusinessSale";
 import { getUserModel } from "@/lib/models/User";
 
-export async function PATCH(request: Request, { params }: { params: { id: string } }) {
+export async function PATCH(request: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
-    const { id } = params;
+    const { id } = await context.params;
     const { productName, quantity, unitPrice, customerName, saleType, paymentMethod, saleDate, dueDate, status, userId } = await request.json();
     if (!id) {
       return NextResponse.json({ error: "Sale id is required" }, { status: 400 });
@@ -59,9 +59,9 @@ export async function PATCH(request: Request, { params }: { params: { id: string
   }
 }
 
-export async function DELETE(request: Request, { params }: { params: { id: string } }) {
+export async function DELETE(request: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
-    const { id } = params;
+    const { id } = await context.params;
     const { userId } = await request.json();
     if (!id) {
       return NextResponse.json({ error: "Sale id is required" }, { status: 400 });

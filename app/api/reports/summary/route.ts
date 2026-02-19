@@ -1,3 +1,4 @@
+export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { Types } from "mongoose";
 import { getConnection } from "@/lib/prisma";

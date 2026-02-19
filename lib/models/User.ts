@@ -1,3 +1,4 @@
+
 import { Schema, Document, Connection, Model } from "mongoose";
 
 export interface IUser extends Document {
@@ -8,6 +9,7 @@ export interface IUser extends Document {
   passwordHash: string;
   role: "admin" | "student" | "business";
   status: "Active" | "Inactive";
+  fcmTokens?: string[];
   createdAt: Date;
   updatedAt: Date;
 }
@@ -20,7 +22,8 @@ const userSchema = new Schema<IUser>(
     name: { type: String, required: true },
     passwordHash: { type: String, required: true },
     role: { type: String, enum: ["admin", "student", "business"], required: true },
-    status: { type: String, enum: ["Active", "Inactive"], default: "Active" }
+    status: { type: String, enum: ["Active", "Inactive"], default: "Active" },
+    fcmTokens: { type: [String], default: [] }
   },
   { timestamps: true }
 );

@@ -2,7 +2,29 @@
 
 import { signOut, useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
-import { useState, useEffect, FormEvent } from "react";
+import { useState, useEffect, FormEvent } from "react"
+import dynamic from "next/dynamic";
+const NotificationRegistrationClient = dynamic(() => import("./NotificationRegistrationClient"), { ssr: false });
+
+function formatTime(date: Date, timeFormat: string, withDate: boolean = false) {
+  if (withDate) {
+    // Show date and time
+    return date.toLocaleString([], {
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: timeFormat === '12',
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+    });
+  }
+  // Only time
+  return date.toLocaleTimeString([], {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: timeFormat === '12',
+  });
+}
 
 interface Task {
   _id: string;
@@ -73,28 +95,10 @@ interface Announcement {
 }
 
 export default function StudentPage() {
-  const router = useRouter();
-  const { data: session } = useSession();
-  const [activeSection, setActiveSection] = useState("dashboard");
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [tasks, setTasks] = useState<Task[]>([]);
-  const [timetable, setTimetable] = useState<StudentTimetableEntry[]>([]);
-  const [reminders, setReminders] = useState<StudentReminder[]>([]);
-  const [announcements, setAnnouncements] = useState<Announcement[]>([]);
-  const [showNotifications, setShowNotifications] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [taskForm, setTaskForm] = useState({
-    title: "",
-    details: "",
-    dueDate: "",
-    priority: "medium" as "low" | "medium" | "high"
-  });
   const [showTaskForm, setShowTaskForm] = useState(false);
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
-  const [taskError, setTaskError] = useState<string | null>(null);
   const [taskSaving, setTaskSaving] = useState(false);
-  const [showTimetableForm, setShowTimetableForm] = useState(false);
-  const [editingTimetableId, setEditingTimetableId] = useState<string | null>(null);
   const [timetableForm, setTimetableForm] = useState({
     day: "Monday" as StudentTimetableEntry["day"],
     className: "",
@@ -102,20 +106,41 @@ export default function StudentPage() {
     endTime: "",
     venue: ""
   });
+  const [showTimetableForm, setShowTimetableForm] = useState(false);
+  const [editingTimetableId, setEditingTimetableId] = useState<string | null>(null);
   const [timetableSaving, setTimetableSaving] = useState(false);
   const [timetableError, setTimetableError] = useState<string | null>(null);
-  const [showReminderForm, setShowReminderForm] = useState(false);
-  const [editingReminderId, setEditingReminderId] = useState<string | null>(null);
   const [reminderForm, setReminderForm] = useState({
     title: "",
     note: "",
     remindAt: "",
     status: "active" as StudentReminder["status"]
   });
+  const [showReminderForm, setShowReminderForm] = useState(false);
+  const [editingReminderId, setEditingReminderId] = useState<string | null>(null);
   const [reminderSaving, setReminderSaving] = useState(false);
   const [reminderError, setReminderError] = useState<string | null>(null);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [showNotifications, setShowNotifications] = useState(false);
+  const [showInviteList, setShowInviteList] = useState<Record<string, boolean>>({});
+  const [showParticipantsList, setShowParticipantsList] = useState<Record<string, boolean>>({});
+  const [taskForm, setTaskForm] = useState({
+    title: "",
+    details: "",
+    dueDate: "",
+    priority: "medium" as "low" | "medium" | "high"
+  });
+  const [taskError, setTaskError] = useState<string | null>(null);
   const [studentUsers, setStudentUsers] = useState<StudentUser[]>([]);
-  const [groups, setGroups] = useState<StudentGroup[]>([]);
+    const [groups, setGroups] = useState<StudentGroup[]>([]);
+    const [reminders, setReminders] = useState<StudentReminder[]>([]);
+    const [timetable, setTimetable] = useState<StudentTimetableEntry[]>([]);
+    const [announcements, setAnnouncements] = useState<Announcement[]>([]);
+  // ...existing code...
+  const router = useRouter();
+  const { data: session } = useSession();
+  const [activeSection, setActiveSection] = useState("dashboard");
+  const [loading, setLoading] = useState(false);
   const [discoverGroups, setDiscoverGroups] = useState<StudentGroup[]>([]);
   const [groupsLoading, setGroupsLoading] = useState(false);
   const [showGroupForm, setShowGroupForm] = useState(false);
@@ -132,6 +157,7 @@ export default function StudentPage() {
   const [messageInput, setMessageInput] = useState("");
   const [groupInvites, setGroupInvites] = useState<StudentGroupInvite[]>([]);
   const [groupActionLoading, setGroupActionLoading] = useState<Record<string, boolean>>({});
+  const [inviteMessage, setInviteMessage] = useState<string | null>(null);
   const [studentSettings, setStudentSettings] = useState({
     username: "",
     name: "",
@@ -147,98 +173,99 @@ export default function StudentPage() {
   });
   const [passwordErrors, setPasswordErrors] = useState<{ [key: string]: string }>({});
 
-  useEffect(() => {
-    // Defer data loading to make page interactive immediately
-    const timer = setTimeout(() => fetchData(), 100);
-    return () => clearTimeout(timer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session?.user]);
+  // Notification registration is handled by NotificationRegistrationClient (client-only component)
 
+  // Move fetchData outside useEffect so it's in scope
   const fetchData = async () => {
     try {
       setLoading(true);
-
       const userId = (session?.user as any)?.id as string | undefined;
-      const announcementUrl = new URL("/api/announcements", window.location.origin);
-      announcementUrl.searchParams.set("audience", "student");
-      if (userId) {
-        announcementUrl.searchParams.set("userId", userId);
-      }
-      
+      // Essential: tasks, timetable, reminders
       const tasksUrl = new URL("/api/student-tasks", window.location.origin);
-      if (userId) {
-        tasksUrl.searchParams.set("userId", userId);
-      }
-
+      if (userId) tasksUrl.searchParams.set("userId", userId);
       const timetableUrl = new URL("/api/student-timetable", window.location.origin);
-      if (userId) {
-        timetableUrl.searchParams.set("userId", userId);
-      }
-
+      if (userId) timetableUrl.searchParams.set("userId", userId);
       const remindersUrl = new URL("/api/student-reminders", window.location.origin);
-      if (userId) {
-        remindersUrl.searchParams.set("userId", userId);
-      }
+      if (userId) remindersUrl.searchParams.set("userId", userId);
 
-      const timetablePromise = userId ? fetch(timetableUrl.toString()) : Promise.resolve(null);
-      const remindersPromise = userId ? fetch(remindersUrl.toString()) : Promise.resolve(null);
-      const studentsPromise = userId ? fetch("/api/users?role=student") : Promise.resolve(null);
-      const groupsPromise = userId ? fetch(`/api/student-groups?userId=${userId}`) : Promise.resolve(null);
-      const discoverGroupsPromise = userId ? fetch(`/api/student-groups?userId=${userId}&discover=true`) : Promise.resolve(null);
-      const invitesPromise = userId ? fetch(`/api/student-group-invites?userId=${userId}`) : Promise.resolve(null);
-      const settingsPromise = userId ? fetch(`/api/student/settings?userId=${userId}`) : Promise.resolve(null);
-      const announcementsRes = await fetch(announcementUrl.toString());
-
-      const [timetableRes, remindersRes, studentsRes, groupsRes, discoverRes, invitesRes, settingsRes] = await Promise.all([
-        timetablePromise,
-        remindersPromise,
-        studentsPromise,
-        groupsPromise,
-        discoverGroupsPromise,
-        invitesPromise,
-        settingsPromise
+      // Fetch essential data first
+      const [tasksRes, timetableRes, remindersRes] = await Promise.all([
+        userId ? fetch(tasksUrl.toString()) : Promise.resolve(null),
+        userId ? fetch(timetableUrl.toString()) : Promise.resolve(null),
+        userId ? fetch(remindersUrl.toString()) : Promise.resolve(null)
       ]);
-
-      const [timetableData, remindersData, studentsData, groupsData, discoverData, invitesData, settingsData] = await Promise.all([
-        timetableRes ? timetableRes.json() : Promise.resolve([]),
-        remindersRes ? remindersRes.json() : Promise.resolve([]),
-        studentsRes ? studentsRes.json() : Promise.resolve([]),
-        groupsRes ? groupsRes.json() : Promise.resolve([]),
-        discoverRes ? discoverRes.json() : Promise.resolve([]),
-        invitesRes ? invitesRes.json() : Promise.resolve([]),
-        settingsRes ? settingsRes.json() : Promise.resolve(null)
+      const safeJson = async (res: Response | null | undefined, fallback: any) => {
+        if (!res) return fallback;
+        try { return await res.json(); } catch { return fallback; }
+      };
+      const [tasksData, timetableData, remindersData] = await Promise.all([
+        safeJson(tasksRes, []),
+        safeJson(timetableRes, []),
+        safeJson(remindersRes, []),
       ]);
-      const announcementsData = await announcementsRes.json();
-
-      let tasksData: Task[] = [];
-      if (userId) {
-        const tasksRes = await fetch(tasksUrl.toString());
-        tasksData = await tasksRes.json();
-      }
-      
-      setTasks(tasksData);
+      setTasks(Array.isArray(tasksData) ? tasksData : []);
       setTimetable(Array.isArray(timetableData) ? timetableData : []);
-      const reminderList = Array.isArray(remindersData) ? remindersData : [];
-      setReminders(reminderList);
-      setStudentUsers(Array.isArray(studentsData) ? studentsData : []);
-      setGroups(Array.isArray(groupsData) ? groupsData : []);
-      setDiscoverGroups(Array.isArray(discoverData) ? discoverData : []);
-      setGroupInvites(Array.isArray(invitesData) ? invitesData : []);
-      if (settingsData && typeof settingsData === "object") {
-        setStudentSettings({
-          username: settingsData.username || "",
-          name: settingsData.name || "",
-          email: settingsData.email || "",
-          timeFormat: settingsData.timeFormat || "24"
-        });
-      }
-      setAnnouncements(Array.isArray(announcementsData) ? announcementsData : []);
+      setReminders(Array.isArray(remindersData) ? remindersData : []);
+      setLoading(false);
+
+      // Secondary/background data (non-blocking)
+      setTimeout(async () => {
+        const announcementUrl = new URL("/api/announcements", window.location.origin);
+        announcementUrl.searchParams.set("audience", "student");
+        if (userId) announcementUrl.searchParams.set("userId", userId);
+        const studentsPromise = userId ? fetch("/api/users?role=student") : Promise.resolve(null);
+        const groupsPromise = userId ? fetch(`/api/student-groups?userId=${userId}`) : Promise.resolve(null);
+        const discoverGroupsPromise = userId ? fetch(`/api/student-groups?userId=${userId}`) : Promise.resolve(null);
+        const invitesPromise = userId ? fetch(`/api/student-group-invites?userId=${userId}`) : Promise.resolve(null);
+        const settingsPromise = userId ? fetch(`/api/student/settings?userId=${userId}`) : Promise.resolve(null);
+        const announcementsRes = await fetch(announcementUrl.toString());
+        const [studentsRes, groupsRes, discoverRes, invitesRes, settingsRes] = await Promise.all([
+          studentsPromise,
+          groupsPromise,
+          discoverGroupsPromise,
+          invitesPromise,
+          settingsPromise
+        ]);
+        const [studentsData, groupsData, discoverData, invitesData, settingsData] = await Promise.all([
+          safeJson(studentsRes, []),
+          safeJson(groupsRes, []),
+          safeJson(discoverRes, []),
+          safeJson(invitesRes, []),
+          safeJson(settingsRes, null)
+        ]);
+        const announcementsData = await safeJson(announcementsRes, []);
+        setStudentUsers(Array.isArray(studentsData) ? studentsData : []);
+        setGroups(Array.isArray(groupsData) ? groupsData : []);
+        setDiscoverGroups(Array.isArray(discoverData) ? discoverData : []);
+        setGroupInvites(Array.isArray(invitesData) ? invitesData : []);
+        // Only show discover groups that have invited the user
+        if (Array.isArray(invitesData) && Array.isArray(discoverData)) {
+          const invitedGroupIds = new Set(invitesData.map((invite: any) => invite.groupId));
+          setDiscoverGroups(discoverData.filter((group: any) => invitedGroupIds.has(group._id)));
+        } else {
+          setDiscoverGroups([]);
+        }
+        setStudentSettings(settingsData || {});
+        setAnnouncements(Array.isArray(announcementsData) ? announcementsData : []);
+      }, 0);
     } catch (error) {
       console.error("Error fetching data:", error);
-    } finally {
-      setLoading(false);
     }
   };
+
+  useEffect(() => {
+    // Defer data loading to make page interactive immediately
+    const timer = setTimeout(() => fetchData(), 100);
+    // Auto-refresh groups section every 10 seconds
+    const interval = setInterval(() => {
+      if (activeSection === "groups") fetchData();
+    }, 10000);
+    return () => {
+      clearTimeout(timer);
+      clearInterval(interval);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session?.user, activeSection]);
 
   const menuItems = [
     { id: "dashboard", label: "Dashboard", icon: <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" /></svg> },
@@ -459,13 +486,19 @@ export default function StudentPage() {
       const url = isEditing ? `/api/student-reminders/${editingReminderId}` : "/api/student-reminders";
       const method = isEditing ? "PATCH" : "POST";
 
+      // Convert local datetime-local string to UTC ISO string for remindAt
+      let remindAtISO = reminderForm.remindAt;
+      if (reminderForm.remindAt) {
+        const localDate = new Date(reminderForm.remindAt);
+        remindAtISO = new Date(localDate.getTime() - localDate.getTimezoneOffset() * 60000).toISOString();
+      }
       const response = await fetch(url, {
         method,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           title: reminderForm.title.trim(),
           note: reminderForm.note.trim() || undefined,
-          remindAt: reminderForm.remindAt || undefined,
+          remindAt: remindAtISO || undefined,
           status: reminderForm.status,
           userId
         })
@@ -497,10 +530,18 @@ export default function StudentPage() {
 
   const handleEditReminder = (reminder: StudentReminder) => {
     setEditingReminderId(reminder._id);
+    // Convert UTC or ISO string to local datetime-local string
+    let localRemindAt = "";
+    if (reminder.remindAt) {
+      const date = new Date(reminder.remindAt);
+      const tzOffset = date.getTimezoneOffset() * 60000;
+      const localISO = new Date(date.getTime() - tzOffset).toISOString().slice(0, 16);
+      localRemindAt = localISO;
+    }
     setReminderForm({
       title: reminder.title,
       note: reminder.note || "",
-      remindAt: reminder.remindAt ? new Date(reminder.remindAt).toISOString().slice(0, 16) : "",
+      remindAt: localRemindAt,
       status: reminder.status
     });
     setReminderError(null);
@@ -802,7 +843,10 @@ export default function StudentPage() {
       });
 
       if (response.ok) {
-        setIsEditingSettings(false);
+        // Update local state with saved values (in case backend returns updated data)
+        const updated = await response.json();
+        setStudentSettings((prev) => ({ ...prev, ...updated }));
+        setIsEditingSettings(false); // Make form read-only after save
       } else {
         const data = await response.json();
         alert(data.error || "Failed to save settings");
@@ -896,492 +940,728 @@ export default function StudentPage() {
   const todaysTimetable = timetable.filter((entry) => entry.day === todayLabel);
 
   return (
-    <div className="flex h-screen overflow-hidden bg-slate-50">
-      {/* Mobile Menu Overlay */}
-      {mobileMenuOpen && (
-        <div
-          className="fixed inset-0 z-40 bg-black bg-opacity-50 lg:hidden"
-          onClick={() => setMobileMenuOpen(false)}
-        />
-      )}
+    <>
+      <NotificationRegistrationClient />
+      <div className="flex h-screen overflow-hidden bg-slate-50 text-base sm:text-lg md:text-xl">
+        {/* Mobile Menu Overlay */}
+        {mobileMenuOpen && (
+          <div
+            className="fixed inset-0 z-40 bg-black bg-opacity-50 lg:hidden"
+            onClick={() => setMobileMenuOpen(false)}
+          />
+        )}
 
-      {/* Sidebar */}
-      <aside
-        className={`fixed inset-y-0 left-0 z-50 flex w-64 flex-col border-r border-slate-200 bg-gradient-to-b from-blue-600 to-blue-800 text-white transition-transform duration-300 lg:relative lg:translate-x-0 ${
-          mobileMenuOpen ? "translate-x-0" : "-translate-x-full"
-        }`}
-      >
-        {/* Logo/Header */}
-        <div className="border-b border-blue-500 px-6 py-5">
-          <h1 className="text-xl font-bold">STPMS Student</h1>
-          <p className="mt-1 text-xs text-blue-200">Portal</p>
-        </div>
-
-        {/* Navigation */}
-        <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-4">
-          {menuItems.map((item) => (
-            <button
-              key={item.id}
-              onClick={() => {
-                setActiveSection(item.id);
-                setMobileMenuOpen(false);
-              }}
-              className={`flex w-full items-center gap-3 rounded-lg px-4 py-3 text-left text-sm font-medium transition ${
-                activeSection === item.id
-                  ? "bg-white text-blue-700 shadow-sm"
-                  : "text-blue-100 hover:bg-blue-700 hover:text-white"
-              }`}
-            >
-              {item.icon}
-              <span>{item.label}</span>
-            </button>
-          ))}
-        </nav>
-
-        {/* User info */}
-        <div className="border-t border-blue-500 px-6 py-4">
-          <div className="mb-3 flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-blue-400 text-sm font-bold">
-              {avatarInitials}
-            </div>
-            <div className="flex-1">
-              <p className="text-sm font-semibold">{displayName}</p>
-              <p className="text-xs text-blue-200">{accountLabel}</p>
-            </div>
+        {/* Sidebar */}
+        <aside
+          className={`fixed inset-y-0 left-0 z-50 flex w-64 flex-col border-r border-slate-200 bg-gradient-to-b from-blue-600 to-blue-800 text-white transition-transform duration-300 lg:relative lg:translate-x-0 ${
+            mobileMenuOpen ? "translate-x-0" : "-translate-x-full"
+          }`}
+        >
+          {/* Logo/Header */}
+          <div className="border-b border-blue-500 px-6 py-5">
+            <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold">STPMS Student</h1>
+            <p className="mt-1 text-sm sm:text-base text-blue-200">Portal</p>
           </div>
-          <button
-            onClick={handleLogout}
-            className="w-full rounded-lg bg-red-500 px-4 py-2 text-sm font-semibold text-white transition hover:bg-red-600"
-          >
-            Logout
-          </button>
-        </div>
-      </aside>
 
-      {/* Main Content */}
-      <div className="flex flex-1 flex-col overflow-hidden">
-        {/* Top Bar */}
-        <header className="border-b border-slate-200 bg-white px-4 py-3 shadow-sm lg:px-6 lg:py-4">
-          <div className="flex items-center justify-between gap-3">
-            {/* Mobile Menu Button */}
-            <button
-              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-              className="rounded-lg border border-slate-300 bg-white p-2 text-slate-700 hover:bg-slate-50 lg:hidden"
-            >
-              <svg className="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
-              </svg>
-            </button>
+          {/* Navigation */}
+          <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-4">
+            {menuItems.map((item) => (
+              <button
+                key={item.id}
+                onClick={() => {
+                  setActiveSection(item.id);
+                  setMobileMenuOpen(false);
+                }}
+                className={`flex w-full items-center gap-3 rounded-lg px-4 py-3 text-left text-base sm:text-lg font-medium transition ${
+                  activeSection === item.id
+                    ? "bg-white text-blue-700 shadow-sm"
+                    : "text-blue-100 hover:bg-blue-700 hover:text-white"
+                }`}
+              >
+                {item.icon}
+                <span>{item.label}</span>
+              </button>
+            ))}
 
-            <div className="flex-1">
-              <h2 className="text-lg font-bold text-slate-900 lg:text-2xl">
-                {menuItems.find((m) => m.id === activeSection)?.label}
-              </h2>
-              <p className="hidden text-sm text-slate-600 sm:block">
-                Manage your academic journey
-              </p>
-            </div>
-            <div className="flex items-center gap-2 lg:gap-3">
-              <div className="relative hidden sm:block">
-                <button
-                  onClick={() => setShowNotifications((prev) => !prev)}
-                  className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 sm:flex sm:items-center sm:gap-2 lg:px-4"
-                >
-                  <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" /></svg>
-                  <span className="hidden lg:inline">Notifications</span>
-                  {announcements.length > 0 && (
-                    <span className="ml-2 rounded-full bg-blue-600 px-2 py-0.5 text-[10px] font-semibold text-white">
-                      {announcements.length}
-                    </span>
-                  )}
-                </button>
-                {showNotifications && (
-                  <div className="absolute right-0 z-50 mt-2 w-80 rounded-xl border border-slate-200 bg-white p-3 shadow-lg">
-                    <div className="flex items-center justify-between">
-                      <h4 className="text-sm font-semibold text-slate-900">Notifications</h4>
-                      <button
-                        onClick={() => setShowNotifications(false)}
-                        className="text-xs text-slate-500 hover:text-slate-700"
-                      >
-                        Close
-                      </button>
-                    </div>
-                    <div className="mt-3 space-y-2 text-xs">
-                      {announcements.length === 0 ? (
-                        <p className="text-slate-500">No notifications yet.</p>
-                      ) : (
-                        announcements.map((announcement) => (
-                          <div key={announcement._id} className="rounded-lg border border-blue-100 bg-blue-50 p-2">
-                            <p className="font-semibold text-blue-900">{announcement.title}</p>
-                            <p className="text-blue-700">{announcement.body}</p>
-                          </div>
-                        ))
-                      )}
-                    </div>
-                  </div>
+            {/* Notifications button for mobile only, below nav */}
+            <div className="relative px-3 py-2 lg:hidden">
+              <button
+                onClick={() => setShowNotifications((prev) => !prev)}
+                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-base font-medium text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+              >
+                <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" /></svg>
+                <span>Notifications</span>
+                {announcements.length > 0 && (
+                  <span className="ml-2 rounded-full bg-blue-600 px-2 py-0.5 text-xs font-semibold text-white">
+                    {announcements.length}
+                  </span>
                 )}
+              </button>
+              {showNotifications && (
+                <div className="absolute left-0 right-0 z-50 mt-2 w-full rounded-xl border border-slate-200 bg-white p-3 shadow-lg">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-base sm:text-lg font-semibold text-slate-900">Notifications</h4>
+                    <button
+                      onClick={() => setShowNotifications(false)}
+                      className="text-sm text-slate-500 hover:text-slate-700"
+                    >
+                      Close
+                    </button>
+                  </div>
+                  <div className="mt-3 space-y-2 text-sm">
+                    {announcements.length === 0 ? (
+                      <p className="text-slate-500">No notifications yet.</p>
+                    ) : (
+                      announcements.map((announcement) => (
+                        <div key={announcement._id} className="rounded-lg border border-blue-100 bg-blue-50 p-2">
+                          <p className="font-semibold text-blue-900 text-base sm:text-lg">{announcement.title}</p>
+                          <p className="text-blue-700 text-sm sm:text-base">{announcement.body}</p>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* User info */}
+            <div className="border-t border-blue-500 px-6 py-4">
+              <div className="mb-3 flex items-center gap-4">
+                <div className="flex h-12 w-12 lg:h-16 lg:w-16 items-center justify-center rounded-full bg-blue-400 text-lg lg:text-2xl font-bold">
+                  {avatarInitials}
+                </div>
+                <div className="flex-1">
+                  <p className="text-lg lg:text-2xl font-semibold">{displayName}</p>
+                  <p className="text-base lg:text-lg text-blue-200">{accountLabel}</p>
+                </div>
               </div>
               <button
                 onClick={handleLogout}
-                className="rounded-lg bg-red-500 px-3 py-2 text-sm font-semibold text-white hover:bg-red-600 lg:hidden"
+                className="w-full rounded-lg bg-red-500 px-4 py-2 text-base sm:text-lg font-semibold text-white transition hover:bg-red-600 mt-3"
               >
                 Logout
               </button>
             </div>
-          </div>
-        </header>
+          </nav>
 
-        {/* Content Area */}
-        <main className="flex-1 overflow-y-auto p-4 lg:p-6">
-          {activeSection === "dashboard" && (
-            <div className="space-y-6">
-              {/* Quick Stats */}
-              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                {[
-                  { label: "Pending Tasks", value: loading ? "..." : pendingTasks.length.toString(), color: "blue", icon: "📝" },
-                  { label: "Completed", value: loading ? "..." : completedTasks.length.toString(), color: "green", icon: "✅" },
-                  { label: "Active Reminders", value: loading ? "..." : activeReminders.length.toString(), color: "purple", icon: "🔔" },
-                  { label: "Overdue Tasks", value: loading ? "..." : overdueTasks.length.toString(), color: "red", icon: "⚠️" }
-                ].map((stat) => (
-                  <div
-                    key={stat.label}
-                    className="group cursor-pointer rounded-xl bg-white p-5 shadow-sm ring-1 ring-slate-200 transition hover:shadow-md hover:ring-blue-200"
-                  >
-                    <div className="flex items-center justify-between">
-                      <p className="text-sm font-medium text-slate-600">{stat.label}</p>
-                      <span className="text-2xl">{stat.icon}</span>
-                    </div>
-                    <div className="mt-3">
-                      <span className="text-3xl font-bold text-slate-900">{stat.value}</span>
-                    </div>
-                  </div>
-                ))}
+          {/* User info */}
+          <div className="border-t border-blue-500 px-6 py-4">
+            <div className="mb-3 flex items-center gap-4">
+              <div className="flex h-12 w-12 lg:h-16 lg:w-16 items-center justify-center rounded-full bg-blue-400 text-lg lg:text-2xl font-bold">
+                {avatarInitials}
               </div>
-
-              {/* Today's Overview */}
-              <div className="grid gap-6 lg:grid-cols-2">
-                {/* Upcoming Tasks */}
-                <div className="rounded-xl bg-white p-4 shadow-sm ring-1 ring-slate-200 lg:p-6">
-                  <div className="mb-4 flex items-center justify-between">
-                    <h3 className="text-lg font-semibold text-slate-900">Upcoming Tasks</h3>
-                    <button 
-                      onClick={() => setActiveSection("tasks")}
-                      className="text-sm font-medium text-blue-600 hover:text-blue-700"
-                    >
-                      View All →
-                    </button>
-                  </div>
-                  {loading ? (
-                    <div className="flex items-center justify-center py-8">
-                      <div className="h-6 w-6 animate-spin rounded-full border-4 border-blue-600 border-t-transparent"></div>
-                    </div>
-                  ) : pendingTasks.length === 0 ? (
-                    <div className="py-8 text-center text-sm text-slate-600">
-                      No pending tasks. Great job! 🎉
-                    </div>
-                  ) : (
-                    <div className="space-y-3">
-                      {pendingTasks.slice(0, 4).map((task) => (
-                        <div key={task._id} className="flex items-start gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
-                          <div className="flex h-5 w-5 items-center justify-center rounded-full border-2 border-slate-400 bg-white"></div>
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium text-slate-900 truncate">{task.title}</p>
-                            {task.dueDate && (
-                              <p className="text-xs text-slate-600">
-                                Due: {new Date(task.dueDate).toLocaleDateString()}
-                              </p>
-                            )}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
-                {/* Active Reminders */}
-                <div className="rounded-xl bg-white p-4 shadow-sm ring-1 ring-slate-200 lg:p-6">
-                  <div className="mb-4 flex items-center justify-between">
-                    <h3 className="text-lg font-semibold text-slate-900">Active Reminders</h3>
-                    <button 
-                      onClick={() => setActiveSection("reminders")}
-                      className="text-sm font-medium text-blue-600 hover:text-blue-700"
-                    >
-                      View All →
-                    </button>
-                  </div>
-                  {loading ? (
-                    <div className="flex items-center justify-center py-8">
-                      <div className="h-6 w-6 animate-spin rounded-full border-4 border-blue-600 border-t-transparent"></div>
-                    </div>
-                  ) : activeReminders.length === 0 ? (
-                    <div className="py-8 text-center text-sm text-slate-600">
-                      No active reminders
-                    </div>
-                  ) : (
-                    <div className="space-y-3">
-                      {activeReminders.slice(0, 4).map((reminder) => (
-                        <div key={reminder._id} className="flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 p-3">
-                          <svg className="h-5 w-5 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
-                          </svg>
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium text-slate-900">{reminder.title}</p>
-                            {reminder.note && (
-                              <p className="text-xs text-slate-600">{reminder.note}</p>
-                            )}
-                            {reminder.remindAt && (
-                              <p className="text-xs text-slate-600">
-                                {new Date(reminder.remindAt).toLocaleString()}
-                              </p>
-                            )}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Today's Schedule */}
-              <div className="rounded-xl bg-white p-4 shadow-sm ring-1 ring-slate-200 lg:p-6">
-                <div className="mb-4 flex items-center justify-between">
-                  <h3 className="text-lg font-semibold text-slate-900">Today&apos;s Schedule</h3>
-                  <button 
-                    onClick={() => setActiveSection("timetable")}
-                    className="text-sm font-medium text-blue-600 hover:text-blue-700"
-                  >
-                    Full Timetable →
-                  </button>
-                </div>
-                {loading ? (
-                  <div className="flex items-center justify-center py-8">
-                    <div className="h-6 w-6 animate-spin rounded-full border-4 border-blue-600 border-t-transparent"></div>
-                  </div>
-                ) : todaysTimetable.length === 0 ? (
-                  <div className="py-8 text-center text-sm text-slate-600">
-                    No scheduled classes today
-                  </div>
-                ) : (
-                  <div className="space-y-3">
-                    {todaysTimetable.slice(0, 5).map((entry) => (
-                      <div key={entry._id} className="flex items-center gap-4 rounded-lg border border-slate-200 p-3">
-                        <div className="text-center">
-                          <p className="text-xs font-semibold text-slate-600">
-                            {entry.startTime}
-                          </p>
-                          <p className="text-xs text-slate-500">-</p>
-                          <p className="text-xs text-slate-600">
-                            {entry.endTime}
-                          </p>
-                        </div>
-                        <div className="h-12 w-1 rounded-full bg-blue-500"></div>
-                        <div className="flex-1">
-                          <p className="font-medium text-slate-900">{entry.className}</p>
-                          {entry.venue && (
-                            <p className="text-sm text-slate-600">📍 {entry.venue}</p>
-                          )}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
+              <div className="flex-1">
+                <p className="text-lg lg:text-2xl font-semibold">{displayName}</p>
+                <p className="text-base lg:text-lg text-blue-200">{accountLabel}</p>
               </div>
             </div>
-          )}
+            <button
+              onClick={handleLogout}
+              className="w-full rounded-lg bg-red-500 px-4 py-2 text-base sm:text-lg font-semibold text-white transition hover:bg-red-600 mt-3"
+            >
+              Logout
+            </button>
+          </div>
+        </aside>
 
-          {activeSection === "tasks" && (
-            <div className="space-y-6">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <h3 className="text-lg font-semibold text-slate-900">My Tasks</h3>
-                  <p className="text-sm text-slate-600">Track and manage your assignments</p>
+        {/* Main Content */}
+        <div className="flex flex-1 flex-col overflow-hidden text-base sm:text-lg">
+          {/* Top Bar */}
+          <header className="border-b border-slate-200 bg-white px-4 py-3 shadow-sm lg:px-6 lg:py-4">
+            <div className="flex items-center justify-between gap-3">
+              {/* Mobile Menu Button */}
+              <button
+                onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+                className="rounded-lg border border-slate-300 bg-white p-2 text-slate-700 hover:bg-slate-50 lg:hidden"
+              >
+                <svg className="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+                </svg>
+              </button>
+
+              <div className="flex-1">
+                <h2 className="text-2xl sm:text-3xl font-bold text-slate-900 lg:text-4xl">
+                  {menuItems.find((m) => m.id === activeSection)?.label}
+                </h2>
+                <p className="hidden text-base text-slate-600 sm:block">
+                  Manage your academic journey
+                </p>
+              </div>
+              <div className="flex items-center gap-2 lg:gap-3">
+                {/* Notifications button for desktop only */}
+                <div className="relative hidden lg:block">
+                  <button
+                    onClick={() => setShowNotifications((prev) => !prev)}
+                    className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-base font-medium text-slate-700 hover:bg-slate-50 flex items-center gap-2 lg:px-4"
+                  >
+                    <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" /></svg>
+                    <span>Notifications</span>
+                    {announcements.length > 0 && (
+                      <span className="ml-2 rounded-full bg-blue-600 px-2 py-0.5 text-xs font-semibold text-white">
+                        {announcements.length}
+                      </span>
+                    )}
+                  </button>
+                  {showNotifications && (
+                    <div className="absolute right-0 z-50 mt-2 w-80 rounded-xl border border-slate-200 bg-white p-3 shadow-lg">
+                      <div className="flex items-center justify-between">
+                        <h4 className="text-base sm:text-lg font-semibold text-slate-900">Notifications</h4>
+                        <button
+                          onClick={() => setShowNotifications(false)}
+                          className="text-sm text-slate-500 hover:text-slate-700"
+                        >
+                          Close
+                        </button>
+                      </div>
+                      <div className="mt-3 space-y-2 text-sm">
+                        {announcements.length === 0 ? (
+                          <p className="text-slate-500">No notifications yet.</p>
+                        ) : (
+                          announcements.map((announcement) => (
+                            <div key={announcement._id} className="rounded-lg border border-blue-100 bg-blue-50 p-2">
+                              <p className="font-semibold text-blue-900 text-base sm:text-lg">{announcement.title}</p>
+                              <p className="text-blue-700 text-sm sm:text-base">{announcement.body}</p>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </div>
+                  )}
                 </div>
                 <button
-                  onClick={() => {
-                    setShowTaskForm((prev) => {
-                      const next = !prev;
-                      if (!next) {
-                        setEditingTaskId(null);
-                        setTaskForm({ title: "", details: "", dueDate: "", priority: "medium" });
-                        setTaskError(null);
-                      }
-                      return next;
-                    });
-                  }}
-                  className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+                  onClick={handleLogout}
+                  className="rounded-lg bg-red-500 px-3 py-2 text-sm font-semibold text-white hover:bg-red-600 lg:hidden"
                 >
-                  {showTaskForm ? "Close" : "+ Add Task"}
+                  Logout
                 </button>
               </div>
-              {showTaskForm && (
-                <form onSubmit={handleCreateTask} className="rounded-xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
-                  <div className="flex flex-col gap-4 lg:flex-row lg:items-end">
-                    <div className="flex-1">
-                      <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">Task title</label>
-                      <input
-                        type="text"
-                        value={taskForm.title}
-                        onChange={(event) => setTaskForm((prev) => ({ ...prev, title: event.target.value }))}
-                        className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
-                        placeholder="e.g. Math assignment 2"
-                      />
+            </div>
+          </header>
+
+          {/* Content Area */}
+          <main className="flex-1 overflow-y-auto p-4 lg:p-6">
+            {activeSection === "dashboard" && (
+              <div className="space-y-6">
+                {/* Quick Stats */}
+                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                  {[
+                    { label: "Pending Tasks", value: loading ? "..." : pendingTasks.length.toString(), color: "blue", icon: "📝" },
+                    { label: "Completed", value: loading ? "..." : completedTasks.length.toString(), color: "green", icon: "✅" },
+                    { label: "Active Reminders", value: loading ? "..." : activeReminders.length.toString(), color: "purple", icon: "🔔" },
+                    { label: "Overdue Tasks", value: loading ? "..." : overdueTasks.length.toString(), color: "red", icon: "⚠️" }
+                  ].map((stat) => (
+                    <div
+                      key={stat.label}
+                      className="group cursor-pointer rounded-xl bg-white p-5 shadow-sm ring-1 ring-slate-200 transition hover:shadow-md hover:ring-blue-200"
+                    >
+                      <div className="flex items-center justify-between">
+                        <p className="text-sm font-medium text-slate-600">{stat.label}</p>
+                        <span className="text-2xl">{stat.icon}</span>
+                      </div>
+                      <div className="mt-3">
+                        <span className="text-3xl font-bold text-slate-900">{stat.value}</span>
+                      </div>
                     </div>
-                    <div className="flex-1">
-                      <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">Details</label>
-                      <input
-                        type="text"
-                        value={taskForm.details}
-                        onChange={(event) => setTaskForm((prev) => ({ ...prev, details: event.target.value }))}
-                        className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
-                        placeholder="Optional notes or resources"
-                      />
-                    </div>
-                  </div>
-                  <div className="mt-4 flex flex-col gap-4 lg:flex-row lg:items-end">
-                    <div className="w-full lg:w-56">
-                      <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">Priority</label>
-                      <select
-                        value={taskForm.priority}
-                        onChange={(event) => setTaskForm((prev) => ({ ...prev, priority: event.target.value as "low" | "medium" | "high" }))}
-                        className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
+                  ))}
+                </div>
+
+                {/* Today's Overview */}
+                <div className="grid gap-6 lg:grid-cols-2">
+                  {/* Upcoming Tasks */}
+                  <div className="rounded-xl bg-white p-4 shadow-sm ring-1 ring-slate-200 lg:p-6">
+                    <div className="mb-4 flex items-center justify-between">
+                      <h3 className="text-xl md:text-2xl font-bold text-slate-900">Upcoming Tasks</h3>
+                      <button 
+                        onClick={() => setActiveSection("tasks")}
+                        className="text-base md:text-lg font-semibold text-blue-600 hover:text-blue-700"
                       >
-                        <option value="low">Low</option>
-                        <option value="medium">Medium</option>
-                        <option value="high">High</option>
-                      </select>
-                    </div>
-                    <div className="w-full lg:w-56">
-                      <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">Due date</label>
-                      <input
-                        type="date"
-                        value={taskForm.dueDate}
-                        onChange={(event) => setTaskForm((prev) => ({ ...prev, dueDate: event.target.value }))}
-                        className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
-                      />
-                    </div>
-                    <div className="flex-1">
-                      <button
-                        type="submit"
-                        disabled={taskSaving}
-                        className="w-full rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-70 lg:w-auto"
-                      >
-                        {taskSaving ? "Saving..." : editingTaskId ? "Update Task" : "Save Task"}
+                        View All →
                       </button>
                     </div>
+                    {loading ? (
+                      <div className="flex items-center justify-center py-8">
+                        <div className="h-6 w-6 animate-spin rounded-full border-4 border-blue-600 border-t-transparent"></div>
+                      </div>
+                    ) : pendingTasks.length === 0 ? (
+                      <div className="py-8 text-center text-base md:text-lg text-slate-600">
+                        No pending tasks. Great job! 🎉
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        {pendingTasks.slice(0, 4).map((task) => (
+                          <div key={task._id} className="flex items-start gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
+                            <div className="flex h-5 w-5 items-center justify-center rounded-full border-2 border-slate-400 bg-white"></div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-lg md:text-xl font-semibold text-slate-900 truncate">{task.title}</p>
+                              {task.dueDate && (
+                                <p className="text-base md:text-lg text-slate-600">
+                                  Due: {new Date(task.dueDate).toLocaleDateString()}
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
-                  {taskError && (
-                    <p className="mt-3 text-sm font-medium text-red-600">{taskError}</p>
-                  )}
-                </form>
-              )}
 
-              {/* Task Stats */}
-              <div className="grid gap-4 sm:grid-cols-3">
-                {[
-                  { label: "Pending", value: pendingTasks.length, color: "blue" },
-                  { label: "Completed", value: completedTasks.length, color: "green" },
-                  { label: "Overdue", value: overdueTasks.length, color: "red" }
-                ].map((stat) => (
-                  <div key={stat.label} className="rounded-xl bg-white p-4 shadow-sm ring-1 ring-slate-200">
-                    <p className="text-sm text-slate-600">{stat.label}</p>
-                    <p className="mt-2 text-2xl font-bold text-slate-900">{stat.value}</p>
+                  {/* Active Reminders */}
+                  <div className="rounded-xl bg-white p-4 shadow-sm ring-1 ring-slate-200 lg:p-6">
+                    <div className="mb-4 flex items-center justify-between">
+                      <h3 className="text-xl md:text-2xl font-bold text-slate-900">Active Reminders</h3>
+                      <button 
+                        onClick={() => setActiveSection("reminders")}
+                        className="text-base md:text-lg font-semibold text-blue-600 hover:text-blue-700"
+                      >
+                        View All →
+                      </button>
+                    </div>
+                    {loading ? (
+                      <div className="flex items-center justify-center py-8">
+                        <div className="h-6 w-6 animate-spin rounded-full border-4 border-blue-600 border-t-transparent"></div>
+                      </div>
+                    ) : activeReminders.length === 0 ? (
+                      <div className="py-8 text-center text-base md:text-lg text-slate-600">
+                        No active reminders
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        {activeReminders.slice(0, 4).map((reminder) => (
+                          <div key={reminder._id} className="flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 p-3">
+                            <svg className="h-5 w-5 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+                            </svg>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-lg md:text-xl font-semibold text-slate-900">{reminder.title}</p>
+                              {reminder.note && (
+                                <p className="text-base md:text-lg text-slate-600">{reminder.note}</p>
+                              )}
+                              {reminder.remindAt && (
+                                <p className="text-base md:text-lg text-slate-600">
+                                  {formatTime(new Date(reminder.remindAt), studentSettings.timeFormat, true)}
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
-                ))}
-              </div>
-
-              {/* Tasks List */}
-              <div className="rounded-xl bg-white shadow-sm ring-1 ring-slate-200">
-                <div className="border-b border-slate-200 px-6 py-4">
-                  <h4 className="font-semibold text-slate-900">All Tasks</h4>
                 </div>
-                {loading ? (
-                  <div className="flex items-center justify-center py-12">
-                    <div className="h-8 w-8 animate-spin rounded-full border-4 border-blue-600 border-t-transparent"></div>
+
+                {/* Today's Schedule */}
+                <div className="rounded-xl bg-white p-4 shadow-sm ring-1 ring-slate-200 lg:p-6">
+                  <div className="mb-4 flex items-center justify-between">
+                    <h3 className="text-xl md:text-2xl font-bold text-slate-900">Today&apos;s Schedule</h3>
+                    <button 
+                      onClick={() => setActiveSection("timetable")}
+                      className="text-base md:text-lg font-semibold text-blue-600 hover:text-blue-700"
+                    >
+                      Full Timetable →
+                    </button>
                   </div>
-                ) : tasks.length === 0 ? (
-                  <div className="py-12 text-center">
-                    <p className="text-slate-600">No tasks yet</p>
-                    <p className="mt-1 text-sm text-slate-500">Create your first task to get started</p>
+                  {loading ? (
+                    <div className="flex items-center justify-center py-8">
+                      <div className="h-6 w-6 animate-spin rounded-full border-4 border-blue-600 border-t-transparent"></div>
+                    </div>
+                  ) : todaysTimetable.length === 0 ? (
+                    <div className="py-8 text-center text-base md:text-lg text-slate-600">
+                      No scheduled classes today
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      {todaysTimetable.slice(0, 5).map((entry) => (
+                        <div key={entry._id} className="flex items-center gap-4 rounded-lg border border-slate-200 p-3">
+                          <div className="text-center">
+                            <p className="text-base md:text-lg font-semibold text-slate-600">
+                              {entry.startTime ? formatTime(new Date(`1970-01-01T${entry.startTime}`), studentSettings.timeFormat) : "—"}
+                            </p>
+                            <p className="text-base md:text-lg text-slate-500">-</p>
+                            <p className="text-base md:text-lg text-slate-600">
+                              {entry.endTime ? formatTime(new Date(`1970-01-01T${entry.endTime}`), studentSettings.timeFormat) : "—"}
+                            </p>
+                          </div>
+                          <div className="h-12 w-1 rounded-full bg-blue-500"></div>
+                          <div className="flex-1">
+                            <p className="text-lg md:text-xl font-semibold text-slate-900">{entry.className}</p>
+                            {entry.venue && (
+                              <p className="text-base md:text-lg text-slate-600">📍 {entry.venue}</p>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {activeSection === "tasks" && (
+              <div className="space-y-6">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <h3 className="text-lg font-semibold text-slate-900">My Tasks</h3>
+                    <p className="text-sm text-slate-600">Track and manage your assignments</p>
                   </div>
-                ) : (
-                  <div className="overflow-x-auto">
-                    <table className="min-w-full text-sm">
-                      <thead className="hidden bg-blue-600 text-left text-xs font-semibold uppercase tracking-wide text-white md:table-header-group">
-                        <tr>
-                          <th className="px-4 py-3">Title</th>
-                          <th className="px-4 py-3">Due date</th>
-                          <th className="px-4 py-3">Priority</th>
-                          <th className="px-4 py-3">Status</th>
-                          <th className="px-4 py-3 text-right">Actions</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-200">
-                        {tasks.map((task) => {
-                          const displayStatus = getTaskStatus(task);
-                          return (
-                            <tr key={task._id} className="block border border-slate-200/70 bg-white p-4 shadow-sm md:table-row md:border-0 md:bg-transparent md:p-0 md:shadow-none">
-                              <td className="flex items-start justify-between gap-3 py-2 md:table-cell md:px-4 md:py-3">
-                                <span className="text-xs font-semibold uppercase text-slate-500 md:hidden">Title</span>
-                                <div className="flex items-start gap-3">
-                                  <button
-                                    type="button"
-                                    onClick={() => handleToggleTaskStatus(task)}
-                                    className={`mt-0.5 flex h-5 w-5 items-center justify-center rounded-full border-2 transition ${
-                                      task.status === "done"
-                                        ? "border-green-500 bg-green-500 text-white"
-                                        : "border-slate-400 bg-white text-transparent hover:border-blue-500"
-                                    }`}
-                                    aria-label={task.status === "done" ? "Mark task pending" : "Mark task done"}
-                                  >
-                                    <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-                                    </svg>
-                                  </button>
-                                  <div>
-                                    <p className={`font-medium ${task.status === "done" ? "text-slate-500 line-through" : "text-slate-900"}`}>
-                                      {task.title}
-                                    </p>
-                                    {task.details && (
-                                      <p className="text-xs text-slate-500">{task.details}</p>
-                                    )}
+                  <button
+                    onClick={() => {
+                      setShowTaskForm((prev) => {
+                        const next = !prev;
+                        if (!next) {
+                          setEditingTaskId(null);
+                          setTaskForm({ title: "", details: "", dueDate: "", priority: "medium" });
+                          setTaskError(null);
+                        }
+                        return next;
+                      });
+                    }}
+                    className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+                  >
+                    {showTaskForm ? "Close" : "+ Add Task"}
+                  </button>
+                </div>
+                {showTaskForm && (
+                  <form onSubmit={handleCreateTask} className="rounded-xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+                    <div className="flex flex-col gap-4 lg:flex-row lg:items-end">
+                      <div className="flex-1">
+                        <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">Task title</label>
+                        <input
+                          type="text"
+                          value={taskForm.title}
+                          onChange={(event) => setTaskForm((prev) => ({ ...prev, title: event.target.value }))}
+                          className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
+                          placeholder="e.g. Math assignment 2"
+                        />
+                      </div>
+                      <div className="flex-1">
+                        <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">Details</label>
+                        <input
+                          type="text"
+                          value={taskForm.details}
+                          onChange={(event) => setTaskForm((prev) => ({ ...prev, details: event.target.value }))}
+                          className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
+                          placeholder="Optional notes or resources"
+                        />
+                      </div>
+                    </div>
+                    <div className="mt-4 flex flex-col gap-4 lg:flex-row lg:items-end">
+                      <div className="w-full lg:w-56">
+                        <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">Priority</label>
+                        <select
+                          value={taskForm.priority}
+                          onChange={(event) => setTaskForm((prev) => ({ ...prev, priority: event.target.value as "low" | "medium" | "high" }))}
+                          className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
+                        >
+                          <option value="low">Low</option>
+                          <option value="medium">Medium</option>
+                          <option value="high">High</option>
+                        </select>
+                      </div>
+                      <div className="w-full lg:w-56">
+                        <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">Due date</label>
+                        <input
+                          type="date"
+                          value={taskForm.dueDate}
+                          onChange={(event) => setTaskForm((prev) => ({ ...prev, dueDate: event.target.value }))}
+                          className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
+                        />
+                      </div>
+                      <div className="flex-1">
+                        <button
+                          type="submit"
+                          disabled={taskSaving}
+                          className="w-full rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-70 lg:w-auto"
+                        >
+                          {taskSaving ? "Saving..." : editingTaskId ? "Update Task" : "Save Task"}
+                        </button>
+                      </div>
+                    </div>
+                    {taskError && (
+                      <p className="mt-3 text-sm font-medium text-red-600">{taskError}</p>
+                    )}
+                  </form>
+                )}
+
+                {/* Task Stats */}
+                <div className="grid gap-4 sm:grid-cols-3">
+                  {[
+                    { label: "Pending", value: pendingTasks.length, color: "blue" },
+                    { label: "Completed", value: completedTasks.length, color: "green" },
+                    { label: "Overdue", value: overdueTasks.length, color: "red" }
+                  ].map((stat) => (
+                    <div key={stat.label} className="rounded-xl bg-white p-4 shadow-sm ring-1 ring-slate-200">
+                      <p className="text-sm text-slate-600">{stat.label}</p>
+                      <p className="mt-2 text-2xl font-bold text-slate-900">{stat.value}</p>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Tasks List */}
+                <div className="rounded-xl bg-white shadow-sm ring-1 ring-slate-200">
+                  <div className="border-b border-slate-200 px-6 py-4">
+                    <h4 className="font-semibold text-slate-900">All Tasks</h4>
+                  </div>
+                  {loading ? (
+                    <div className="flex items-center justify-center py-12">
+                      <div className="h-8 w-8 animate-spin rounded-full border-4 border-blue-600 border-t-transparent"></div>
+                    </div>
+                  ) : tasks.length === 0 ? (
+                    <div className="py-12 text-center">
+                      <p className="text-slate-600">No tasks yet</p>
+                      <p className="mt-1 text-sm text-slate-500">Create your first task to get started</p>
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="min-w-full text-sm">
+                        <thead className="hidden bg-blue-600 text-left text-xs font-semibold uppercase tracking-wide text-white md:table-header-group">
+                          <tr>
+                            <th className="px-4 py-3">Title</th>
+                            <th className="px-4 py-3">Due date</th>
+                            <th className="px-4 py-3">Priority</th>
+                            <th className="px-4 py-3">Status</th>
+                            <th className="px-4 py-3 text-right">Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-200">
+                          {tasks.map((task) => {
+                            const displayStatus = getTaskStatus(task);
+                            return (
+                              <tr key={task._id} className="block border border-slate-200/70 bg-white p-4 shadow-sm md:table-row md:border-0 md:bg-transparent md:p-0 md:shadow-none">
+                                <td className="flex items-start justify-between gap-3 py-2 md:table-cell md:px-4 md:py-3">
+                                  <span className="text-xs font-semibold uppercase text-slate-500 md:hidden">Title</span>
+                                  <div className="flex items-start gap-3">
+                                    <button
+                                      type="button"
+                                      onClick={() => handleToggleTaskStatus(task)}
+                                      className={`mt-0.5 flex h-5 w-5 items-center justify-center rounded-full border-2 transition ${
+                                        task.status === "done"
+                                          ? "border-green-500 bg-green-500 text-white"
+                                          : "border-slate-400 bg-white text-transparent hover:border-blue-500"
+                                      }`}
+                                      aria-label={task.status === "done" ? "Mark task pending" : "Mark task done"}
+                                    >
+                                      <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                                      </svg>
+                                    </button>
+                                    <div>
+                                      <p className={`font-medium ${task.status === "done" ? "text-slate-500 line-through" : "text-slate-900"}`}>
+                                        {task.title}
+                                      </p>
+                                      {task.details && (
+                                        <p className="text-xs text-slate-500">{task.details}</p>
+                                      )}
+                                    </div>
                                   </div>
-                                </div>
+                                </td>
+                                <td className="flex items-center justify-between gap-3 py-2 md:table-cell md:px-4 md:py-3">
+                                  <span className="text-xs font-semibold uppercase text-slate-500 md:hidden">Due date</span>
+                                  <span className="text-sm text-slate-700">
+                                    {task.dueDate ? new Date(task.dueDate).toLocaleDateString() : "—"}
+                                  </span>
+                                </td>
+                                <td className="flex items-center justify-between gap-3 py-2 md:table-cell md:px-4 md:py-3">
+                                  <span className="text-xs font-semibold uppercase text-slate-500 md:hidden">Priority</span>
+                                  <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-700">
+                                    {task.priority ?? "medium"}
+                                  </span>
+                                </td>
+                                <td className="flex items-center justify-between gap-3 py-2 md:table-cell md:px-4 md:py-3">
+                                  <span className="text-xs font-semibold uppercase text-slate-500 md:hidden">Status</span>
+                                  <span className={`rounded-full px-3 py-1 text-xs font-semibold ${
+                                    displayStatus === "done" ? "bg-green-100 text-green-800" :
+                                    displayStatus === "overdue" ? "bg-red-100 text-red-800" :
+                                    "bg-blue-100 text-blue-800"
+                                  }`}>
+                                    {displayStatus}
+                                  </span>
+                                </td>
+                                <td className="flex items-center justify-between gap-3 py-2 md:table-cell md:px-4 md:py-3 md:text-right">
+                                  <span className="text-xs font-semibold uppercase text-slate-500 md:hidden">Actions</span>
+                                  <div className="flex justify-end gap-2">
+                                    <button
+                                      type="button"
+                                      onClick={() => handleEditTask(task)}
+                                      className="rounded-lg border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-100"
+                                    >
+                                      Edit
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleDeleteTask(task._id)}
+                                      className="rounded-lg border border-red-200 px-3 py-1 text-xs font-semibold text-red-600 hover:bg-red-50"
+                                    >
+                                      Delete
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {activeSection === "timetable" && (
+              <div className="space-y-6">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <h3 className="text-lg font-semibold text-slate-900">My Timetable</h3>
+                    <p className="text-sm text-slate-600">Plan and manage your class schedule</p>
+                  </div>
+                  <button
+                    onClick={() => {
+                      setShowTimetableForm((prev) => {
+                        const next = !prev;
+                        if (!next) {
+                          setEditingTimetableId(null);
+                          setTimetableForm({ day: "Monday", className: "", startTime: "", endTime: "", venue: "" });
+                          setTimetableError(null);
+                        }
+                        return next;
+                      });
+                    }}
+                    className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+                  >
+                    {showTimetableForm ? "Close" : "+ Add Class"}
+                  </button>
+                </div>
+
+                {showTimetableForm && (
+                  <form onSubmit={handleSaveTimetable} className="rounded-xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+                    <div className="grid gap-4 lg:grid-cols-3">
+                      <div>
+                        <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">Day</label>
+                        <select
+                          value={timetableForm.day}
+                          onChange={(event) => setTimetableForm((prev) => ({ ...prev, day: event.target.value as StudentTimetableEntry["day"] }))}
+                          className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
+                        >
+                          {["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"].map((day) => (
+                            <option key={day} value={day}>{day}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">Class</label>
+                        <input
+                          type="text"
+                          value={timetableForm.className}
+                          onChange={(event) => setTimetableForm((prev) => ({ ...prev, className: event.target.value }))}
+                          className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
+                          placeholder="e.g. Chemistry 101"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">Venue</label>
+                        <input
+                          type="text"
+                          value={timetableForm.venue}
+                          onChange={(event) => setTimetableForm((prev) => ({ ...prev, venue: event.target.value }))}
+                          className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
+                          placeholder="e.g. Room B12"
+                        />
+                      </div>
+                    </div>
+                    <div className="mt-4 grid gap-4 lg:grid-cols-3 lg:items-end">
+                      <div>
+                        <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">Start time</label>
+                        <input
+                          type="time"
+                          value={timetableForm.startTime}
+                          onChange={(event) => setTimetableForm((prev) => ({ ...prev, startTime: event.target.value }))}
+                          className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">End time</label>
+                        <input
+                          type="time"
+                          value={timetableForm.endTime}
+                          onChange={(event) => setTimetableForm((prev) => ({ ...prev, endTime: event.target.value }))}
+                          className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
+                        />
+                      </div>
+                      <div>
+                        <button
+                          type="submit"
+                          disabled={timetableSaving}
+                          className="w-full rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-70 lg:w-auto"
+                        >
+                          {timetableSaving ? "Saving..." : editingTimetableId ? "Update Class" : "Save Class"}
+                        </button>
+                      </div>
+                    </div>
+                    {timetableError && (
+                      <p className="mt-3 text-sm font-medium text-red-600">{timetableError}</p>
+                    )}
+                  </form>
+                )}
+
+                <div className="rounded-xl bg-white shadow-sm ring-1 ring-slate-200">
+                  <div className="border-b border-slate-200 px-6 py-4">
+                    <h4 className="font-semibold text-slate-900">Weekly Schedule</h4>
+                  </div>
+                  {loading ? (
+                    <div className="flex items-center justify-center py-12">
+                      <div className="h-8 w-8 animate-spin rounded-full border-4 border-blue-600 border-t-transparent"></div>
+                    </div>
+                  ) : timetable.length === 0 ? (
+                    <div className="py-12 text-center">
+                      <p className="text-slate-600">No classes scheduled</p>
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="min-w-full text-sm">
+                        <thead className="hidden bg-blue-600 text-left text-xs font-semibold uppercase tracking-wide text-white md:table-header-group">
+                          <tr>
+                            <th className="px-4 py-3">Day</th>
+                            <th className="px-4 py-3">Class</th>
+                            <th className="px-4 py-3">Time</th>
+                            <th className="px-4 py-3">Venue</th>
+                            <th className="px-4 py-3 text-right">Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-200">
+                          {timetable.map((entry) => (
+                            <tr key={entry._id} className="block border border-slate-200/70 bg-white p-4 shadow-sm md:table-row md:border-0 md:bg-transparent md:p-0 md:shadow-none">
+                              <td className="flex items-center justify-between gap-3 py-2 md:table-cell md:px-4 md:py-3">
+                                <span className="text-xs font-semibold uppercase text-slate-500 md:hidden">Day</span>
+                                <span className="font-medium text-slate-900">{entry.day}</span>
                               </td>
                               <td className="flex items-center justify-between gap-3 py-2 md:table-cell md:px-4 md:py-3">
-                                <span className="text-xs font-semibold uppercase text-slate-500 md:hidden">Due date</span>
-                                <span className="text-sm text-slate-700">
-                                  {task.dueDate ? new Date(task.dueDate).toLocaleDateString() : "—"}
+                                <span className="text-xs font-semibold uppercase text-slate-500 md:hidden">Class</span>
+                                <span className="text-slate-700">{entry.className}</span>
+                              </td>
+                              <td className="flex items-center justify-between gap-3 py-2 md:table-cell md:px-4 md:py-3">
+                                <span className="text-xs font-semibold uppercase text-slate-500 md:hidden">Time</span>
+                                <span className="text-slate-700">
+                                  {entry.startTime ? formatTime(new Date(`1970-01-01T${entry.startTime}`), studentSettings.timeFormat) : "—"}
+                                  {" - "}
+                                  {entry.endTime ? formatTime(new Date(`1970-01-01T${entry.endTime}`), studentSettings.timeFormat) : "—"}
                                 </span>
                               </td>
                               <td className="flex items-center justify-between gap-3 py-2 md:table-cell md:px-4 md:py-3">
-                                <span className="text-xs font-semibold uppercase text-slate-500 md:hidden">Priority</span>
-                                <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-700">
-                                  {task.priority ?? "medium"}
-                                </span>
-                              </td>
-                              <td className="flex items-center justify-between gap-3 py-2 md:table-cell md:px-4 md:py-3">
-                                <span className="text-xs font-semibold uppercase text-slate-500 md:hidden">Status</span>
-                                <span className={`rounded-full px-3 py-1 text-xs font-semibold ${
-                                  displayStatus === "done" ? "bg-green-100 text-green-800" :
-                                  displayStatus === "overdue" ? "bg-red-100 text-red-800" :
-                                  "bg-blue-100 text-blue-800"
-                                }`}>
-                                  {displayStatus}
-                                </span>
+                                <span className="text-xs font-semibold uppercase text-slate-500 md:hidden">Venue</span>
+                                <span className="text-slate-700">{entry.venue || "—"}</span>
                               </td>
                               <td className="flex items-center justify-between gap-3 py-2 md:table-cell md:px-4 md:py-3 md:text-right">
                                 <span className="text-xs font-semibold uppercase text-slate-500 md:hidden">Actions</span>
                                 <div className="flex justify-end gap-2">
                                   <button
                                     type="button"
-                                    onClick={() => handleEditTask(task)}
+                                    onClick={() => handleEditTimetable(entry)}
                                     className="rounded-lg border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-100"
                                   >
                                     Edit
                                   </button>
                                   <button
                                     type="button"
-                                    onClick={() => handleDeleteTask(task._id)}
+                                    onClick={() => handleDeleteTimetable(entry._id)}
                                     className="rounded-lg border border-red-200 px-3 py-1 text-xs font-semibold text-red-600 hover:bg-red-50"
                                   >
                                     Delete
@@ -1389,703 +1669,611 @@ export default function StudentPage() {
                                 </div>
                               </td>
                             </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-
-          {activeSection === "timetable" && (
-            <div className="space-y-6">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <h3 className="text-lg font-semibold text-slate-900">My Timetable</h3>
-                  <p className="text-sm text-slate-600">Plan and manage your class schedule</p>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
                 </div>
-                <button
-                  onClick={() => {
-                    setShowTimetableForm((prev) => {
-                      const next = !prev;
-                      if (!next) {
-                        setEditingTimetableId(null);
-                        setTimetableForm({ day: "Monday", className: "", startTime: "", endTime: "", venue: "" });
-                        setTimetableError(null);
-                      }
-                      return next;
-                    });
-                  }}
-                  className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
-                >
-                  {showTimetableForm ? "Close" : "+ Add Class"}
-                </button>
               </div>
+            )}
 
-              {showTimetableForm && (
-                <form onSubmit={handleSaveTimetable} className="rounded-xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
-                  <div className="grid gap-4 lg:grid-cols-3">
-                    <div>
-                      <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">Day</label>
-                      <select
-                        value={timetableForm.day}
-                        onChange={(event) => setTimetableForm((prev) => ({ ...prev, day: event.target.value as StudentTimetableEntry["day"] }))}
-                        className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
-                      >
-                        {["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"].map((day) => (
-                          <option key={day} value={day}>{day}</option>
-                        ))}
-                      </select>
-                    </div>
-                    <div>
-                      <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">Class</label>
-                      <input
-                        type="text"
-                        value={timetableForm.className}
-                        onChange={(event) => setTimetableForm((prev) => ({ ...prev, className: event.target.value }))}
-                        className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
-                        placeholder="e.g. Chemistry 101"
-                      />
-                    </div>
-                    <div>
-                      <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">Venue</label>
-                      <input
-                        type="text"
-                        value={timetableForm.venue}
-                        onChange={(event) => setTimetableForm((prev) => ({ ...prev, venue: event.target.value }))}
-                        className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
-                        placeholder="e.g. Room B12"
-                      />
-                    </div>
+            {activeSection === "reminders" && (
+              <div className="space-y-6">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <h3 className="text-lg font-semibold text-slate-900">Reminders</h3>
+                    <p className="text-sm text-slate-600">Stay on top of deadlines and personal alerts</p>
                   </div>
-                  <div className="mt-4 grid gap-4 lg:grid-cols-3 lg:items-end">
-                    <div>
-                      <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">Start time</label>
-                      <input
-                        type="time"
-                        value={timetableForm.startTime}
-                        onChange={(event) => setTimetableForm((prev) => ({ ...prev, startTime: event.target.value }))}
-                        className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
-                      />
+                  <button
+                    onClick={() => {
+                      setShowReminderForm((prev) => {
+                        const next = !prev;
+                        if (!next) {
+                          setEditingReminderId(null);
+                          setReminderForm({ title: "", note: "", remindAt: "", status: "active" });
+                          setReminderError(null);
+                        }
+                        return next;
+                      });
+                    }}
+                    className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+                  >
+                    {showReminderForm ? "Close" : "+ Add Reminder"}
+                  </button>
+                </div>
+
+                {showReminderForm && (
+                  <form onSubmit={handleSaveReminder} className="rounded-xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+                    <div className="grid gap-4 lg:grid-cols-3">
+                      <div>
+                        <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">Title</label>
+                        <input
+                          type="text"
+                          value={reminderForm.title}
+                          onChange={(event) => setReminderForm((prev) => ({ ...prev, title: event.target.value }))}
+                          className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
+                          placeholder="e.g. Submit project draft"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">Notes</label>
+                        <input
+                          type="text"
+                          value={reminderForm.note}
+                          onChange={(event) => setReminderForm((prev) => ({ ...prev, note: event.target.value }))}
+                          className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
+                          placeholder="Optional details"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">Remind at</label>
+                        <input
+                          type="datetime-local"
+                          value={reminderForm.remindAt}
+                          onChange={(event) => setReminderForm((prev) => ({ ...prev, remindAt: event.target.value }))}
+                          className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
+                        />
+                      </div>
                     </div>
-                    <div>
-                      <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">End time</label>
-                      <input
-                        type="time"
-                        value={timetableForm.endTime}
-                        onChange={(event) => setTimetableForm((prev) => ({ ...prev, endTime: event.target.value }))}
-                        className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
-                      />
-                    </div>
-                    <div>
+                    <div className="mt-4 flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+                      <div className="w-full lg:w-56">
+                        <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">Status</label>
+                        <select
+                          value={reminderForm.status}
+                          onChange={(event) => setReminderForm((prev) => ({ ...prev, status: event.target.value as StudentReminder["status"] }))}
+                          className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
+                        >
+                          <option value="active">Active</option>
+                          <option value="dismissed">Dismissed</option>
+                          <option value="expired">Expired</option>
+                        </select>
+                      </div>
                       <button
                         type="submit"
-                        disabled={timetableSaving}
+                        disabled={reminderSaving}
                         className="w-full rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-70 lg:w-auto"
                       >
-                        {timetableSaving ? "Saving..." : editingTimetableId ? "Update Class" : "Save Class"}
+                        {reminderSaving ? "Saving..." : editingReminderId ? "Update Reminder" : "Save Reminder"}
                       </button>
                     </div>
-                  </div>
-                  {timetableError && (
-                    <p className="mt-3 text-sm font-medium text-red-600">{timetableError}</p>
-                  )}
-                </form>
-              )}
-
-              <div className="rounded-xl bg-white shadow-sm ring-1 ring-slate-200">
-                <div className="border-b border-slate-200 px-6 py-4">
-                  <h4 className="font-semibold text-slate-900">Weekly Schedule</h4>
-                </div>
-                {loading ? (
-                  <div className="flex items-center justify-center py-12">
-                    <div className="h-8 w-8 animate-spin rounded-full border-4 border-blue-600 border-t-transparent"></div>
-                  </div>
-                ) : timetable.length === 0 ? (
-                  <div className="py-12 text-center">
-                    <p className="text-slate-600">No classes scheduled</p>
-                  </div>
-                ) : (
-                  <div className="overflow-x-auto">
-                    <table className="min-w-full text-sm">
-                      <thead className="hidden bg-blue-600 text-left text-xs font-semibold uppercase tracking-wide text-white md:table-header-group">
-                        <tr>
-                          <th className="px-4 py-3">Day</th>
-                          <th className="px-4 py-3">Class</th>
-                          <th className="px-4 py-3">Time</th>
-                          <th className="px-4 py-3">Venue</th>
-                          <th className="px-4 py-3 text-right">Actions</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-200">
-                        {timetable.map((entry) => (
-                          <tr key={entry._id} className="block border border-slate-200/70 bg-white p-4 shadow-sm md:table-row md:border-0 md:bg-transparent md:p-0 md:shadow-none">
-                            <td className="flex items-center justify-between gap-3 py-2 md:table-cell md:px-4 md:py-3">
-                              <span className="text-xs font-semibold uppercase text-slate-500 md:hidden">Day</span>
-                              <span className="font-medium text-slate-900">{entry.day}</span>
-                            </td>
-                            <td className="flex items-center justify-between gap-3 py-2 md:table-cell md:px-4 md:py-3">
-                              <span className="text-xs font-semibold uppercase text-slate-500 md:hidden">Class</span>
-                              <span className="text-slate-700">{entry.className}</span>
-                            </td>
-                            <td className="flex items-center justify-between gap-3 py-2 md:table-cell md:px-4 md:py-3">
-                              <span className="text-xs font-semibold uppercase text-slate-500 md:hidden">Time</span>
-                              <span className="text-slate-700">{entry.startTime} - {entry.endTime}</span>
-                            </td>
-                            <td className="flex items-center justify-between gap-3 py-2 md:table-cell md:px-4 md:py-3">
-                              <span className="text-xs font-semibold uppercase text-slate-500 md:hidden">Venue</span>
-                              <span className="text-slate-700">{entry.venue || "—"}</span>
-                            </td>
-                            <td className="flex items-center justify-between gap-3 py-2 md:table-cell md:px-4 md:py-3 md:text-right">
-                              <span className="text-xs font-semibold uppercase text-slate-500 md:hidden">Actions</span>
-                              <div className="flex justify-end gap-2">
-                                <button
-                                  type="button"
-                                  onClick={() => handleEditTimetable(entry)}
-                                  className="rounded-lg border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-100"
-                                >
-                                  Edit
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => handleDeleteTimetable(entry._id)}
-                                  className="rounded-lg border border-red-200 px-3 py-1 text-xs font-semibold text-red-600 hover:bg-red-50"
-                                >
-                                  Delete
-                                </button>
-                              </div>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-
-          {activeSection === "reminders" && (
-            <div className="space-y-6">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <h3 className="text-lg font-semibold text-slate-900">Reminders</h3>
-                  <p className="text-sm text-slate-600">Stay on top of deadlines and personal alerts</p>
-                </div>
-                <button
-                  onClick={() => {
-                    setShowReminderForm((prev) => {
-                      const next = !prev;
-                      if (!next) {
-                        setEditingReminderId(null);
-                        setReminderForm({ title: "", note: "", remindAt: "", status: "active" });
-                        setReminderError(null);
-                      }
-                      return next;
-                    });
-                  }}
-                  className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
-                >
-                  {showReminderForm ? "Close" : "+ Add Reminder"}
-                </button>
-              </div>
-
-              {showReminderForm && (
-                <form onSubmit={handleSaveReminder} className="rounded-xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
-                  <div className="grid gap-4 lg:grid-cols-3">
-                    <div>
-                      <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">Title</label>
-                      <input
-                        type="text"
-                        value={reminderForm.title}
-                        onChange={(event) => setReminderForm((prev) => ({ ...prev, title: event.target.value }))}
-                        className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
-                        placeholder="e.g. Submit project draft"
-                      />
-                    </div>
-                    <div>
-                      <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">Notes</label>
-                      <input
-                        type="text"
-                        value={reminderForm.note}
-                        onChange={(event) => setReminderForm((prev) => ({ ...prev, note: event.target.value }))}
-                        className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
-                        placeholder="Optional details"
-                      />
-                    </div>
-                    <div>
-                      <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">Remind at</label>
-                      <input
-                        type="datetime-local"
-                        value={reminderForm.remindAt}
-                        onChange={(event) => setReminderForm((prev) => ({ ...prev, remindAt: event.target.value }))}
-                        className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
-                      />
-                    </div>
-                  </div>
-                  <div className="mt-4 flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
-                    <div className="w-full lg:w-56">
-                      <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">Status</label>
-                      <select
-                        value={reminderForm.status}
-                        onChange={(event) => setReminderForm((prev) => ({ ...prev, status: event.target.value as StudentReminder["status"] }))}
-                        className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
-                      >
-                        <option value="active">Active</option>
-                        <option value="dismissed">Dismissed</option>
-                        <option value="expired">Expired</option>
-                      </select>
-                    </div>
-                    <button
-                      type="submit"
-                      disabled={reminderSaving}
-                      className="w-full rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-70 lg:w-auto"
-                    >
-                      {reminderSaving ? "Saving..." : editingReminderId ? "Update Reminder" : "Save Reminder"}
-                    </button>
-                  </div>
-                  {reminderError && (
-                    <p className="mt-3 text-sm font-medium text-red-600">{reminderError}</p>
-                  )}
-                </form>
-              )}
-
-              <div className="rounded-xl bg-white shadow-sm ring-1 ring-slate-200">
-                <div className="border-b border-slate-200 px-6 py-4">
-                  <h4 className="font-semibold text-slate-900">Your Reminders</h4>
-                </div>
-                {loading ? (
-                  <div className="flex items-center justify-center py-12">
-                    <div className="h-8 w-8 animate-spin rounded-full border-4 border-blue-600 border-t-transparent"></div>
-                  </div>
-                ) : reminders.length === 0 ? (
-                  <div className="py-12 text-center">
-                    <p className="text-slate-600">No active reminders</p>
-                    <p className="mt-1 text-sm text-slate-500">Create reminders to stay organized</p>
-                  </div>
-                ) : (
-                  <div className="overflow-x-auto">
-                    <table className="min-w-full text-sm">
-                      <thead className="hidden bg-blue-600 text-left text-xs font-semibold uppercase tracking-wide text-white md:table-header-group">
-                        <tr>
-                          <th className="px-4 py-3">Title</th>
-                          <th className="px-4 py-3">Notes</th>
-                          <th className="px-4 py-3">Remind At</th>
-                          <th className="px-4 py-3">Status</th>
-                          <th className="px-4 py-3 text-right">Actions</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-200">
-                        {reminders.map((reminder) => (
-                          <tr key={reminder._id} className="block border border-slate-200/70 bg-white p-4 shadow-sm md:table-row md:border-0 md:bg-transparent md:p-0 md:shadow-none">
-                            <td className="flex items-center justify-between gap-3 py-2 md:table-cell md:px-4 md:py-3">
-                              <span className="text-xs font-semibold uppercase text-slate-500 md:hidden">Title</span>
-                              <span className="font-medium text-slate-900">{reminder.title}</span>
-                            </td>
-                            <td className="flex items-center justify-between gap-3 py-2 md:table-cell md:px-4 md:py-3">
-                              <span className="text-xs font-semibold uppercase text-slate-500 md:hidden">Notes</span>
-                              <span className="text-slate-700">{reminder.note || "—"}</span>
-                            </td>
-                            <td className="flex items-center justify-between gap-3 py-2 md:table-cell md:px-4 md:py-3">
-                              <span className="text-xs font-semibold uppercase text-slate-500 md:hidden">Remind At</span>
-                              <span className="text-slate-700">
-                                {reminder.remindAt ? new Date(reminder.remindAt).toLocaleString() : "—"}
-                              </span>
-                            </td>
-                            <td className="flex items-center justify-between gap-3 py-2 md:table-cell md:px-4 md:py-3">
-                              <span className="text-xs font-semibold uppercase text-slate-500 md:hidden">Status</span>
-                              <span className={`rounded-full px-3 py-1 text-xs font-semibold ${
-                                reminder.status === "active" ? "bg-emerald-100 text-emerald-800" :
-                                reminder.status === "dismissed" ? "bg-slate-100 text-slate-700" :
-                                "bg-amber-100 text-amber-800"
-                              }`}>
-                                {reminder.status}
-                              </span>
-                            </td>
-                            <td className="flex items-center justify-between gap-3 py-2 md:table-cell md:px-4 md:py-3 md:text-right">
-                              <span className="text-xs font-semibold uppercase text-slate-500 md:hidden">Actions</span>
-                              <div className="flex justify-end gap-2">
-                                <button
-                                  type="button"
-                                  onClick={() => handleEditReminder(reminder)}
-                                  className="rounded-lg border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-100"
-                                >
-                                  Edit
-                                </button>
-                                {reminder.status === "active" && (
-                                  <button
-                                    type="button"
-                                    onClick={() => handleDismissReminder(reminder._id)}
-                                    className="rounded-lg border border-amber-200 px-3 py-1 text-xs font-semibold text-amber-700 hover:bg-amber-50"
-                                  >
-                                    Dismiss
-                                  </button>
-                                )}
-                                <button
-                                  type="button"
-                                  onClick={() => handleDeleteReminder(reminder._id)}
-                                  className="rounded-lg border border-red-200 px-3 py-1 text-xs font-semibold text-red-600 hover:bg-red-50"
-                                >
-                                  Delete
-                                </button>
-                              </div>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-
-          {activeSection === "groups" && (
-            <div className="space-y-6">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <h3 className="text-lg font-semibold text-slate-900">Discussion Groups</h3>
-                  <p className="text-sm text-slate-600">Create groups, invite classmates, and chat in real time</p>
-                </div>
-                <button
-                  onClick={() => {
-                    setShowGroupForm((prev) => {
-                      const next = !prev;
-                      if (!next) {
-                        setGroupForm({ name: "", description: "", memberIds: [] });
-                        setGroupError(null);
-                      }
-                      return next;
-                    });
-                  }}
-                  className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
-                >
-                  {showGroupForm ? "Close" : "+ Create Group"}
-                </button>
-              </div>
-
-              {showGroupForm && (
-                <form onSubmit={handleCreateGroup} className="rounded-xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
-                  <div className="grid gap-4 lg:grid-cols-3">
-                    <div>
-                      <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">Group name</label>
-                      <input
-                        type="text"
-                        value={groupForm.name}
-                        onChange={(event) => setGroupForm((prev) => ({ ...prev, name: event.target.value }))}
-                        className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
-                        placeholder="e.g. Biology Study Squad"
-                      />
-                    </div>
-                    <div className="lg:col-span-2">
-                      <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">Description</label>
-                      <input
-                        type="text"
-                        value={groupForm.description}
-                        onChange={(event) => setGroupForm((prev) => ({ ...prev, description: event.target.value }))}
-                        className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
-                        placeholder="Optional purpose or topic"
-                      />
-                    </div>
-                  </div>
-                  <div className="mt-4">
-                    <div className="flex items-center justify-between">
-                      <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">Invite members (max 4)</label>
-                      <span className="text-xs text-slate-500">
-                        {groupForm.memberIds.length} / 4 selected
-                      </span>
-                    </div>
-                    <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                      {studentUsers
-                        .filter((student) => student._id !== currentUserId)
-                        .map((student) => (
-                          <label key={student._id} className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700">
-                            <input
-                              type="checkbox"
-                              checked={groupForm.memberIds.includes(student._id)}
-                              disabled={!groupForm.memberIds.includes(student._id) && groupForm.memberIds.length >= 4}
-                              onChange={(event) => {
-                                const checked = event.target.checked;
-                                setGroupForm((prev) => {
-                                  const updated = new Set(prev.memberIds);
-                                  if (checked) {
-                                    updated.add(student._id);
-                                  } else {
-                                    updated.delete(student._id);
-                                  }
-                                  return { ...prev, memberIds: Array.from(updated) };
-                                });
-                              }}
-                              className="h-4 w-4 rounded border-slate-300 text-blue-600"
-                            />
-                            <span>{student.name}</span>
-                          </label>
-                        ))}
-                    </div>
-                  </div>
-                  <div className="mt-4 flex justify-end">
-                    <button
-                      type="submit"
-                      disabled={groupSaving}
-                      className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-70"
-                    >
-                      {groupSaving ? "Saving..." : "Create Group"}
-                    </button>
-                  </div>
-                  {groupError && (
-                    <p className="mt-3 text-sm font-medium text-red-600">{groupError}</p>
-                  )}
-                </form>
-              )}
-
-              {/* My Groups */}
-              <div className="rounded-xl bg-white p-4 shadow-sm ring-1 ring-slate-200 lg:p-6">
-                <h4 className="mb-4 text-base font-semibold text-slate-900">My Groups</h4>
-                {groupsLoading ? (
-                  <div className="flex items-center justify-center py-8">
-                    <div className="h-6 w-6 animate-spin rounded-full border-4 border-blue-600 border-t-transparent"></div>
-                  </div>
-                ) : groups.length === 0 ? (
-                  <div className="py-8 text-center text-sm text-slate-600">No groups yet. Create one to get started.</div>
-                ) : (
-                  <div className="space-y-3">
-                    {groups.map((group) => (
-                      <div key={group._id} className="flex flex-col gap-3 rounded-lg border border-slate-200 p-4 transition-colors hover:bg-slate-50 sm:flex-row sm:items-center sm:justify-between">
-                        <div>
-                          <h5 className="font-semibold text-slate-900">{group.name}</h5>
-                          <p className="mt-1 text-xs text-slate-600">
-                            {group.memberIds.length} / 5 members
-                          </p>
-                          {group.description && (
-                            <p className="mt-1 text-sm text-slate-600">{group.description}</p>
-                          )}
-                          <div className="mt-2 flex flex-wrap gap-2 text-xs text-slate-500">
-                            {group.memberIds.map((memberId) => (
-                              <span key={memberId} className="flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5">
-                                {studentLookup.get(memberId)?.name || "Student"}
-                                {group.ownerId === memberId && (
-                                  <span className="text-[10px] font-semibold text-blue-600">(admin)</span>
-                                )}
-                                {group.ownerId === currentUserId && memberId !== currentUserId && (
-                                  <button
-                                    type="button"
-                                    onClick={() => handleRemoveMember(group._id, memberId)}
-                                    disabled={groupActionLoading[`remove-${group._id}-${memberId}`]}
-                                    className="ml-1 text-[10px] font-semibold text-red-500 hover:text-red-700 disabled:opacity-60"
-                                  >
-                                    {groupActionLoading[`remove-${group._id}-${memberId}`] ? "Removing..." : "Remove"}
-                                  </button>
-                                )}
-                              </span>
-                            ))}
-                          </div>
-                          {group.ownerId === currentUserId && group.memberIds.length < 5 && (
-                            <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
-                              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Invite members</p>
-                              <div className="mt-2 flex flex-wrap gap-2">
-                                {studentUsers
-                                  .filter((student) => !group.memberIds.includes(student._id) && student._id !== currentUserId)
-                                  .map((student) => (
-                                    <button
-                                      key={student._id}
-                                      type="button"
-                                      onClick={() => handleInviteMembers(group._id, [student._id])}
-                                      disabled={groupActionLoading[`invite-${group._id}`]}
-                                      className="rounded-full border border-blue-200 px-3 py-1 text-xs font-semibold text-blue-600 hover:bg-blue-50 disabled:opacity-60"
-                                    >
-                                      {groupActionLoading[`invite-${group._id}`] ? "Inviting..." : student.name}
-                                    </button>
-                                  ))}
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <button
-                            type="button"
-                            onClick={() => handleSelectGroup(group._id)}
-                            className="rounded-lg px-3 py-2 text-sm font-medium text-blue-600 hover:bg-blue-50"
-                          >
-                            Open Chat
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleLeaveGroup(group._id)}
-                            disabled={groupActionLoading[`leave-${group._id}`]}
-                            className="rounded-lg border border-red-200 px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-60"
-                          >
-                            {groupActionLoading[`leave-${group._id}`] ? "Leaving..." : "Leave"}
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              {/* Available Groups to Join */}
-              <div className="rounded-xl bg-white p-4 shadow-sm ring-1 ring-slate-200 lg:p-6">
-                <h4 className="mb-4 text-base font-semibold text-slate-900">Discover Groups</h4>
-                {discoverGroups.length === 0 && groupInvites.length === 0 ? (
-                  <div className="py-8 text-center text-sm text-slate-600">No available groups right now.</div>
-                ) : (
-                  <div className="space-y-4">
-                    {groupInvites.length > 0 && (
-                      <div className="rounded-lg border border-blue-200 bg-blue-50 p-4">
-                        <h5 className="text-sm font-semibold text-blue-900">Invitations</h5>
-                        <div className="mt-3 space-y-3">
-                          {groupInvites.map((invite) => {
-                            const group = discoverGroups.find((g) => g._id === invite.groupId) || groups.find((g) => g._id === invite.groupId);
-                            return (
-                              <div key={invite._id} className="flex items-center justify-between rounded-lg border border-blue-100 bg-white p-3">
-                                <div>
-                                  <p className="text-sm font-semibold text-slate-900">{group?.name || "Group"}</p>
-                                  <p className="text-xs text-slate-500">Invited by {studentLookup.get(invite.inviterId)?.name || "Admin"}</p>
-                                </div>
-                                <div className="flex gap-2">
-                                  <button
-                                    type="button"
-                                    onClick={() => handleAcceptInvite(invite._id)}
-                                      disabled={groupActionLoading[`accept-${invite._id}`]}
-                                      className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
-                                  >
-                                      {groupActionLoading[`accept-${invite._id}`] ? "Joining..." : "Join"}
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => handleDeclineInvite(invite._id)}
-                                      disabled={groupActionLoading[`decline-${invite._id}`]}
-                                      className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-100 disabled:opacity-60"
-                                  >
-                                      {groupActionLoading[`decline-${invite._id}`] ? "Declining..." : "Decline"}
-                                  </button>
-                                </div>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
+                    {reminderError && (
+                      <p className="mt-3 text-sm font-medium text-red-600">{reminderError}</p>
                     )}
-                    <div className="grid gap-4 sm:grid-cols-2">
-                      {discoverGroups.map((group) => (
-                        <div key={group._id} className="rounded-lg border border-slate-200 p-4">
-                          <div className="mb-3 flex items-start justify-between">
-                            <div>
-                              <h5 className="font-semibold text-slate-900">{group.name}</h5>
-                              <p className="mt-1 text-xs text-slate-600">{group.memberIds.length} / 5 members</p>
+                  </form>
+                )}
+
+                <div className="rounded-xl bg-white shadow-sm ring-1 ring-slate-200">
+                  <div className="border-b border-slate-200 px-6 py-4">
+                    <h4 className="font-semibold text-slate-900">Your Reminders</h4>
+                  </div>
+                  {loading ? (
+                    <div className="flex items-center justify-center py-12">
+                      <div className="h-8 w-8 animate-spin rounded-full border-4 border-blue-600 border-t-transparent"></div>
+                    </div>
+                  ) : reminders.length === 0 ? (
+                    <div className="py-12 text-center">
+                      <p className="text-slate-600">No active reminders</p>
+                      <p className="mt-1 text-sm text-slate-500">Create reminders to stay organized</p>
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="min-w-full text-sm">
+                        <thead className="hidden bg-blue-600 text-left text-xs font-semibold uppercase tracking-wide text-white md:table-header-group">
+                          <tr>
+                            <th className="px-4 py-3">Title</th>
+                            <th className="px-4 py-3">Notes</th>
+                            <th className="px-4 py-3">Remind At</th>
+                            <th className="px-4 py-3">Status</th>
+                            <th className="px-4 py-3 text-right">Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-200">
+                          {reminders.map((reminder) => (
+                            <tr key={reminder._id} className="block border border-slate-200/70 bg-white p-4 shadow-sm md:table-row md:border-0 md:bg-transparent md:p-0 md:shadow-none">
+                              <td className="flex items-center justify-between gap-3 py-2 md:table-cell md:px-4 md:py-3">
+                                <span className="text-xs font-semibold uppercase text-slate-500 md:hidden">Title</span>
+                                <span className="font-medium text-slate-900">{reminder.title}</span>
+                              </td>
+                              <td className="flex items-center justify-between gap-3 py-2 md:table-cell md:px-4 md:py-3">
+                                <span className="text-xs font-semibold uppercase text-slate-500 md:hidden">Notes</span>
+                                <span className="text-slate-700">{reminder.note || "—"}</span>
+                              </td>
+                              <td className="flex items-center justify-between gap-3 py-2 md:table-cell md:px-4 md:py-3">
+                                <span className="text-xs font-semibold uppercase text-slate-500 md:hidden">Remind At</span>
+                                <span className="text-slate-700">
+                                  {reminder.remindAt ? formatTime(new Date(reminder.remindAt), studentSettings.timeFormat, true) : "—"}
+                                </span>
+                              </td>
+                              <td className="flex items-center justify-between gap-3 py-2 md:table-cell md:px-4 md:py-3">
+                                <span className="text-xs font-semibold uppercase text-slate-500 md:hidden">Status</span>
+                                <span className={`rounded-full px-3 py-1 text-xs font-semibold ${
+                                  reminder.status === "active" ? "bg-emerald-100 text-emerald-800" :
+                                  reminder.status === "dismissed" ? "bg-slate-100 text-slate-700" :
+                                  "bg-amber-100 text-amber-800"
+                                }`}>
+                                  {reminder.status}
+                                </span>
+                              </td>
+                              <td className="flex items-center justify-between gap-3 py-2 md:table-cell md:px-4 md:py-3 md:text-right">
+                                <span className="text-xs font-semibold uppercase text-slate-500 md:hidden">Actions</span>
+                                <div className="flex justify-end gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleEditReminder(reminder)}
+                                    className="rounded-lg border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-100"
+                                  >
+                                    Edit
+                                  </button>
+                                  {reminder.status === "active" && (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleDismissReminder(reminder._id)}
+                                      className="rounded-lg border border-amber-200 px-3 py-1 text-xs font-semibold text-amber-700 hover:bg-amber-50"
+                                    >
+                                      Dismiss
+                                    </button>
+                                  )}
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDeleteReminder(reminder._id)}
+                                    className="rounded-lg border border-red-200 px-3 py-1 text-xs font-semibold text-red-600 hover:bg-red-50"
+                                  >
+                                    Delete
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {activeSection === "groups" && (
+              <div className="space-y-6">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <h3 className="text-lg font-semibold text-slate-900">Discussion Groups</h3>
+                    <p className="text-sm text-slate-600">Create groups, invite classmates, and chat in real time</p>
+                  </div>
+                  <button
+                    onClick={() => {
+                      setShowGroupForm((prev) => {
+                        const next = !prev;
+                        if (!next) {
+                          setGroupForm({ name: "", description: "", memberIds: [] });
+                          setGroupError(null);
+                        }
+                        return next;
+                      });
+                    }}
+                    className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+                  >
+                    {showGroupForm ? "Close" : "+ Create Group"}
+                  </button>
+                </div>
+
+                {showGroupForm && (
+                  <form onSubmit={handleCreateGroup} className="rounded-xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+                    <div className="grid gap-4 lg:grid-cols-3">
+                      <div>
+                        <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">Group name</label>
+                        <input
+                          type="text"
+                          value={groupForm.name}
+                          onChange={(event) => setGroupForm((prev) => ({ ...prev, name: event.target.value }))}
+                          className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
+                          placeholder="e.g. Biology Study Squad"
+                        />
+                      </div>
+                      <div className="lg:col-span-2">
+                        <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">Description</label>
+                        <input
+                          type="text"
+                          value={groupForm.description}
+                          onChange={(event) => setGroupForm((prev) => ({ ...prev, description: event.target.value }))}
+                          className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
+                          placeholder="Optional purpose or topic"
+                        />
+                      </div>
+                    </div>
+                    <div className="mt-4">
+                      <div className="flex items-center justify-between">
+                        <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">Invite members (max 4)</label>
+                        <span className="text-xs text-slate-500">
+                          {groupForm.memberIds.length} / 4 selected
+                        </span>
+                      </div>
+                      <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                        {studentUsers
+                          .filter((student) => student._id !== currentUserId)
+                          .map((student) => (
+                            <label key={student._id} className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700">
+                              <input
+                                type="checkbox"
+                                checked={groupForm.memberIds.includes(student._id)}
+                                disabled={!groupForm.memberIds.includes(student._id) && groupForm.memberIds.length >= 4}
+                                onChange={(event) => {
+                                  const checked = event.target.checked;
+                                  setGroupForm((prev) => {
+                                    const updated = new Set(prev.memberIds);
+                                    if (checked) {
+                                      updated.add(student._id);
+                                    } else {
+                                      updated.delete(student._id);
+                                    }
+                                    return { ...prev, memberIds: Array.from(updated) };
+                                  });
+                                }}
+                                className="h-4 w-4 rounded border-slate-300 text-blue-600"
+                              />
+                              <span>{student.name}</span>
+                            </label>
+                          ))}
+                      </div>
+                    </div>
+                    <div className="mt-4 flex justify-end">
+                      <button
+                        type="submit"
+                        disabled={groupSaving}
+                        className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-70"
+                      >
+                        {groupSaving ? "Saving..." : "Create Group"}
+                      </button>
+                    </div>
+                    {groupError && (
+                      <p className="mt-3 text-sm font-medium text-red-600">{groupError}</p>
+                    )}
+                  </form>
+                )}
+
+                {/* My Groups */}
+                <div className="rounded-xl bg-white p-4 shadow-sm ring-1 ring-slate-200 lg:p-6">
+                  <h4 className="mb-4 text-base font-semibold text-slate-900">My Groups</h4>
+                  {groupsLoading ? (
+                    <div className="flex items-center justify-center py-8">
+                      <div className="h-6 w-6 animate-spin rounded-full border-4 border-blue-600 border-t-transparent"></div>
+                    </div>
+                  ) : groups.length === 0 ? (
+                    <div className="py-8 text-center text-sm text-slate-600">No groups yet. Create one to get started.</div>
+                  ) : (
+                    <div className="space-y-3">
+                      {groups.map((group) => (
+                        <div key={group._id} className="flex flex-col gap-3 rounded-lg border border-slate-200 p-4 transition-colors hover:bg-slate-50 sm:flex-row sm:items-center sm:justify-between">
+                          <div>
+                            <h5 className="font-semibold text-slate-900">{group.name}</h5>
+                            <p className="mt-1 text-xs text-slate-600">
+                              {group.memberIds.length} / 5 members
+                            </p>
+                            {group.description && (
+                              <p className="mt-1 text-sm text-slate-600">{group.description}</p>
+                            )}
+                            <div className="mt-2 flex flex-wrap gap-2 text-xs text-slate-500">
+                              {group.memberIds.map((memberId) => (
+                                <span key={memberId} className="flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5">
+                                  {studentLookup.get(memberId)?.name || "Student"}
+                                  {group.ownerId === memberId && (
+                                    <span className="text-[10px] font-semibold text-blue-600">(admin)</span>
+                                  )}
+                                  {group.ownerId === currentUserId && memberId !== group.ownerId && (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleRemoveMember(group._id, memberId)}
+                                      disabled={groupActionLoading[`remove-${group._id}-${memberId}`]}
+                                      className="ml-1 text-[10px] font-semibold text-red-500 hover:text-red-700 disabled:opacity-60"
+                                    >
+                                      {groupActionLoading[`remove-${group._id}-${memberId}`] ? "Removing..." : "Remove"}
+                                    </button>
+                                  )}
+                                </span>
+                              ))}
                             </div>
+                            {group.ownerId === currentUserId && group.memberIds.length < 5 && (
+                              <div className="mt-3 rounded-xl border border-slate-200 bg-white p-4 shadow-md">
+                                <div className="flex items-center justify-between mb-2">
+                                  <h6 className="text-sm font-semibold text-blue-700">Group Actions</h6>
+                                </div>
+                                <button
+                                  type="button"
+                                  className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow hover:bg-blue-700 transition"
+                                  onClick={() => setShowInviteList((prev) => ({ ...prev, [group._id]: !prev[group._id] }))}
+                                >
+                                  Invite Members
+                                </button>
+                                {showInviteList && showInviteList[group._id] && (
+                                  <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-30">
+                                    <div className="rounded-xl bg-white p-6 shadow-lg w-full max-w-md">
+                                      <h6 className="mb-4 text-base font-semibold text-blue-700">Select Member to Invite</h6>
+                                      <div className="flex flex-wrap gap-3">
+                                        {studentUsers
+                                          .filter((student) => student._id !== currentUserId && !group.memberIds.includes(student._id))
+                                          .map((student) => {
+                                            const loadingKey = `invite-${group._id}-${student._id}`;
+                                            return (
+                                              <button
+                                                key={student._id}
+                                                type="button"
+                                                onClick={async () => {
+                                                  setGroupActionLoading((prev) => ({ ...prev, [loadingKey]: true }));
+                                                  await handleInviteMembers(group._id, [student._id]);
+                                                  setGroupActionLoading((prev) => ({ ...prev, [loadingKey]: false }));
+                                                  setInviteMessage(`${student.name} has been invited.`);
+                                                  fetchData(); // Refresh group data only
+                                                  setTimeout(() => setInviteMessage(null), 3000);
+                                                }}
+                                                disabled={groupActionLoading[loadingKey]}
+                                                className="rounded-lg border border-blue-300 px-4 py-2 text-sm font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 disabled:opacity-60 transition"
+                                              >
+                                                {groupActionLoading[loadingKey] ? "Inviting..." : student.name}
+                                              </button>
+                                            );
+                                          })}
+                                      </div>
+                                      <button
+                                        type="button"
+                                        className="mt-6 w-full rounded-lg bg-slate-600 px-4 py-2 text-sm font-semibold text-white shadow hover:bg-slate-700 transition"
+                                        onClick={() => setShowInviteList((prev) => ({ ...prev, [group._id]: false }))}
+                                      >
+                                        Close
+                                      </button>
+                                    </div>
+                                  </div>
+                                )}
+                                {inviteMessage && (
+                                  <div className="mt-2 text-xs text-green-600 font-semibold">{inviteMessage}</div>
+                                )}
+                                <div className="mt-6">
+                                  <button
+                                    type="button"
+                                    className="rounded-lg bg-slate-600 px-4 py-2 text-sm font-semibold text-white shadow hover:bg-slate-700 transition"
+                                    onClick={() => setShowParticipantsList((prev) => ({ ...prev, [group._id]: !prev[group._id] }))}
+                                  >
+                                    {showParticipantsList && showParticipantsList[group._id] ? "Hide Participants" : "Show Participants"}
+                                  </button>
+                                  {showParticipantsList && showParticipantsList[group._id] && (
+                                    <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
+                                      <h6 className="mb-2 text-base font-semibold text-slate-700">Participants</h6>
+                                      <ul className="flex flex-wrap gap-3">
+                                        {group.memberIds.map((memberId) => (
+                                          <li key={memberId} className="rounded-full bg-white px-4 py-2 text-sm font-semibold text-slate-700 flex items-center gap-2 shadow">
+                                            {studentLookup.get(memberId)?.name || "Student"}
+                                            {group.ownerId === memberId && <span className="ml-1 text-blue-600">(admin)</span>}
+                                            {group.ownerId === currentUserId && memberId !== group.ownerId && (
+                                              <button
+                                                type="button"
+                                                onClick={() => handleRemoveMember(group._id, memberId)}
+                                                disabled={groupActionLoading[`remove-${group._id}-${memberId}`]}
+                                                className="ml-1 rounded border border-red-200 px-2 py-0.5 text-xs font-semibold text-red-600 hover:bg-red-50 disabled:opacity-60"
+                                              >
+                                                {groupActionLoading[`remove-${group._id}-${memberId}`] ? "Removing..." : "Remove"}
+                                              </button>
+                                            )}
+                                          </li>
+                                        ))}
+                                      </ul>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-2">
                             <button
                               type="button"
-                              onClick={() => handleJoinGroup(group._id)}
-                                disabled={groupActionLoading[`join-${group._id}`]}
-                                className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
+                              onClick={() => handleSelectGroup(group._id)}
+                              className="rounded-lg px-3 py-2 text-sm font-medium text-blue-600 hover:bg-blue-50"
                             >
-                                {groupActionLoading[`join-${group._id}`] ? "Joining..." : "Join"}
+                              Open Chat
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleLeaveGroup(group._id)}
+                              disabled={groupActionLoading[`leave-${group._id}`]}
+                              className="rounded-lg border border-red-200 px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-60"
+                            >
+                              {groupActionLoading[`leave-${group._id}`] ? "Leaving..." : "Leave"}
                             </button>
                           </div>
-                          {group.description && (
-                            <p className="text-sm text-slate-600">{group.description}</p>
-                          )}
                         </div>
                       ))}
                     </div>
-                  </div>
-                )}
-              </div>
-
-              {/* Group Chat */}
-              <div className="rounded-xl bg-white p-4 shadow-sm ring-1 ring-slate-200 lg:p-6">
-                <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                  <h4 className="text-base font-semibold text-slate-900">Group Chat</h4>
-                  {selectedGroup && (
-                    <span className="text-xs text-slate-500">{selectedGroup.name}</span>
                   )}
                 </div>
-                {!selectedGroup ? (
-                  <div className="py-10 text-center text-sm text-slate-600">Select a group to start chatting.</div>
-                ) : (
-                  <div className="space-y-4">
-                    <div className="h-64 overflow-y-auto rounded-lg border border-slate-200 bg-slate-50 p-4">
-                      {groupMessagesLoading ? (
-                        <div className="flex items-center justify-center py-10">
-                          <div className="h-6 w-6 animate-spin rounded-full border-4 border-blue-600 border-t-transparent"></div>
-                        </div>
-                      ) : groupMessages.length === 0 ? (
-                        <div className="text-center text-sm text-slate-600">No messages yet. Start the discussion!</div>
-                      ) : (
-                        <div className="space-y-3">
-                          {groupMessages.map((message) => {
-                            const sender = studentLookup.get(message.senderId);
-                            const isOwn = message.senderId === currentUserId;
-                            return (
-                              <div key={message._id} className={`flex ${isOwn ? "justify-end" : "justify-start"}`}>
-                                <div className={`max-w-xs rounded-xl px-3 py-2 text-sm ${
-                                  isOwn ? "bg-blue-600 text-white" : "bg-white text-slate-700 border border-slate-200"
-                                }`}>
-                                  <p className="text-xs font-semibold opacity-80">{sender?.name || "Student"}</p>
-                                  <p>{message.message}</p>
-                                  <p className={`mt-1 text-[10px] ${isOwn ? "text-blue-100" : "text-slate-400"}`}>
-                                    {new Date(message.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                                  </p>
+
+                {/* Available Groups to Join */}
+                <div className="rounded-xl bg-white p-4 shadow-sm ring-1 ring-slate-200 lg:p-6">
+                  <h4 className="mb-4 text-base font-semibold text-slate-900">Discover Groups</h4>
+                  {discoverGroups.length === 0 && groupInvites.length === 0 ? (
+                    <div className="py-8 text-center text-sm text-slate-600">No available groups right now.</div>
+                  ) : (
+                    <div className="space-y-4">
+                      {groupInvites.length > 0 && (
+                        <div className="rounded-lg border border-blue-200 bg-blue-50 p-4">
+                          <h5 className="text-sm font-semibold text-blue-900">Invitations</h5>
+                          <div className="mt-3 space-y-3">
+                            {groupInvites.map((invite) => {
+                              const group = discoverGroups.find((g) => g._id === invite.groupId) || groups.find((g) => g._id === invite.groupId);
+                              return (
+                                <div key={invite._id} className="flex items-center justify-between rounded-lg border border-blue-100 bg-white p-3">
+                                  <div>
+                                    <p className="text-sm font-semibold text-slate-900">{group?.name || "Group"}</p>
+                                    <p className="text-xs text-slate-500">Invited by {studentLookup.get(invite.inviterId)?.name || "Admin"}</p>
+                                  </div>
+                                  <div className="flex gap-2">
+                                    <button
+                                      type="button"
+                                      onClick={() => handleAcceptInvite(invite._id)}
+                                      disabled={groupActionLoading[`accept-${invite._id}`]}
+                                      className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
+                                    >
+                                      {groupActionLoading[`accept-${invite._id}`] ? "Joining..." : "Join"}
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleDeclineInvite(invite._id)}
+                                      disabled={groupActionLoading[`decline-${invite._id}`]}
+                                      className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-100 disabled:opacity-60"
+                                    >
+                                      {groupActionLoading[`decline-${invite._id}`] ? "Declining..." : "Decline"}
+                                    </button>
+                                  </div>
                                 </div>
-                              </div>
-                            );
-                          })}
+                              );
+                            })}
+                          </div>
                         </div>
                       )}
+                      <div className="grid gap-4 sm:grid-cols-2">
+                        {discoverGroups.map((group) => (
+                          <div key={group._id} className="rounded-lg border border-slate-200 p-4">
+                            <div className="mb-3 flex items-start justify-between">
+                              <div>
+                                <h5 className="font-semibold text-slate-900">{group.name}</h5>
+                                <p className="mt-1 text-xs text-slate-600">{group.memberIds.length} / 5 members</p>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  setGroupActionLoading((prev) => ({ ...prev, [`join-${group._id}`]: true }));
+                                  await handleJoinGroup(group._id);
+                                  setGroupActionLoading((prev) => ({ ...prev, [`join-${group._id}`]: false }));
+                                  setInviteMessage(`Joined group: ${group.name}`);
+                                  fetchData();
+                                  setTimeout(() => setInviteMessage(null), 3000);
+                                }}
+                                disabled={groupActionLoading[`join-${group._id}`]}
+                                className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
+                              >
+                                {groupActionLoading[`join-${group._id}`] ? "Joining..." : "Join"}
+                              </button>
+                            </div>
+                            {group.description && (
+                              <p className="text-sm text-slate-600">{group.description}</p>
+                            )}
+                            {inviteMessage && inviteMessage === `Joined group: ${group.name}` && (
+                              <div className="mt-2 text-xs text-green-600 font-semibold">{inviteMessage}</div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
                     </div>
-                    <form onSubmit={handleSendMessage} className="flex flex-col gap-3 sm:flex-row">
-                      <input
-                        type="text"
-                        value={messageInput}
-                        onChange={(event) => setMessageInput(event.target.value)}
-                        className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
-                        placeholder="Type a message..."
-                      />
-                      <button
-                        type="submit"
-                        disabled={!messageInput.trim()}
-                        className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-70"
-                      >
-                        Send
-                      </button>
-                    </form>
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-
-          {activeSection === "settings" && (
-            <div className="space-y-6">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <h3 className="text-lg font-semibold text-slate-900">Account Settings</h3>
-                  <p className="text-sm text-slate-600">Manage your profile, password, and time format</p>
+                  )}
                 </div>
-                {isEditingSettings ? (
-                  <button
-                    onClick={handleSaveStudentSettings}
-                    className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
-                  >
-                    Save Changes
-                  </button>
-                ) : (
-                  <button
-                    onClick={handleEditStudentSettings}
-                    className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-                  >
-                    Edit
-                  </button>
-                )}
-              </div>
 
-              <div className="grid gap-6 lg:grid-cols-2">
-                <div className="rounded-xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
-                  <h4 className="font-semibold text-slate-900">Student Profile</h4>
+                {/* Group Chat */}
+                <div className="rounded-xl bg-white p-4 shadow-sm ring-1 ring-slate-200 lg:p-6">
+                  <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <h4 className="text-base font-semibold text-slate-900">Group Chat</h4>
+                    {selectedGroup && (
+                      <span className="text-xs text-slate-500">{selectedGroup.name}</span>
+                    )}
+                  </div>
+                  {!selectedGroup ? (
+                    <div className="py-10 text-center text-sm text-slate-600">Select a group to start chatting.</div>
+                  ) : (
+                    <div className="space-y-4">
+                      <div className="h-64 overflow-y-auto rounded-lg border border-slate-200 bg-slate-50 p-4">
+                        {groupMessagesLoading ? (
+                          <div className="flex items-center justify-center py-10">
+                            <div className="h-6 w-6 animate-spin rounded-full border-4 border-blue-600 border-t-transparent"></div>
+                          </div>
+                        ) : groupMessages.length === 0 ? (
+                          <div className="text-center text-sm text-slate-600">No messages yet. Start the discussion!</div>
+                        ) : (
+                          <div className="space-y-3">
+                            {groupMessages.map((message) => {
+                              const sender = studentLookup.get(message.senderId);
+                              const isOwn = message.senderId === currentUserId;
+                              return (
+                                <div key={message._id} className={`flex ${isOwn ? "justify-end" : "justify-start"}`}>
+                                  <div className={`max-w-xs rounded-xl px-3 py-2 text-sm ${
+                                    isOwn ? "bg-blue-600 text-white" : "bg-white text-slate-700 border border-slate-200"
+                                  }`}>
+                                    <p className="text-xs font-semibold opacity-80">{sender?.name || "Student"}</p>
+                                    <p>{message.message}</p>
+                                    <p className={`mt-1 text-[10px] ${isOwn ? "text-blue-100" : "text-slate-400"}`}>
+                                      {formatTime(new Date(message.createdAt), studentSettings.timeFormat)}
+                                    </p>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                      <form onSubmit={handleSendMessage} className="flex flex-col gap-3 sm:flex-row">
+                        <input
+                          type="text"
+                          value={messageInput}
+                          onChange={(event) => setMessageInput(event.target.value)}
+                          className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
+                          placeholder="Type a message..."
+                        />
+                        <button
+                          type="submit"
+                          disabled={!messageInput.trim()}
+                          className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-70"
+                        >
+                          Send
+                        </button>
+                      </form>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {activeSection === "settings" && (
+              <div className="space-y-6">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <h3 className="text-xl font-semibold text-slate-900">Account Settings</h3>
+                    <p className="text-sm text-slate-600">Customize your account settings</p>
+                  </div>
                   {isEditingSettings ? (
+                    <button
+                      onClick={handleSaveStudentSettings}
+                      className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+                    >
+                      Save Changes
+                    </button>
+                  ) : (
+                    <button
+                      onClick={handleEditStudentSettings}
+                      className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                    >
+                      Edit
+                    </button>
+                  )}
+                </div>
+
+                <div className="grid gap-6 lg:grid-cols-2">
+                  <div className="rounded-xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
+                    <h4 className="text-lg font-semibold text-slate-900">Student Profile</h4>
                     <div className="mt-4 space-y-4 text-sm">
                       <div>
                         <label className="text-slate-600">Username</label>
@@ -2094,6 +2282,7 @@ export default function StudentPage() {
                           value={studentSettings.username}
                           onChange={(e) => setStudentSettings({ ...studentSettings, username: e.target.value })}
                           className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                          readOnly={!isEditingSettings}
                         />
                       </div>
                       <div>
@@ -2108,6 +2297,7 @@ export default function StudentPage() {
                           className={`mt-2 w-full rounded-lg border px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 ${
                             settingsErrors.name ? "border-red-400" : "border-slate-300"
                           }`}
+                          readOnly={!isEditingSettings}
                         />
                         {settingsErrors.name && (
                           <p className="mt-1 text-xs text-red-600">{settingsErrors.name}</p>
@@ -2125,6 +2315,7 @@ export default function StudentPage() {
                           className={`mt-2 w-full rounded-lg border px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 ${
                             settingsErrors.email ? "border-red-400" : "border-slate-300"
                           }`}
+                          readOnly={!isEditingSettings}
                         />
                         {settingsErrors.email && (
                           <p className="mt-1 text-xs text-red-600">{settingsErrors.email}</p>
@@ -2140,119 +2331,112 @@ export default function StudentPage() {
                         />
                       </div>
                     </div>
-                  ) : (
-                    <div className="mt-4 space-y-2 text-sm">
-                      <p className="text-slate-700"><span className="font-semibold text-slate-900">Username:</span> {studentSettings.username || "—"}</p>
-                      <p className="text-slate-700"><span className="font-semibold text-slate-900">Name:</span> {studentSettings.name || "—"}</p>
-                      <p className="text-slate-700"><span className="font-semibold text-slate-900">Email:</span> {studentSettings.email || "—"}</p>
-                      <p className="text-slate-700"><span className="font-semibold text-slate-900">Role:</span> Student</p>
+                  </div>
+
+                  {isEditingSettings && (
+                    <div className="rounded-xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
+                      <h4 className="font-semibold text-slate-900">Password Reset</h4>
+                      <div className="mt-4 space-y-4 text-sm">
+                        <div>
+                          <label className="text-slate-600">Current Password</label>
+                          <input
+                            type="password"
+                            value={passwordForm.currentPassword}
+                            onChange={(e) => {
+                              setPasswordForm({ ...passwordForm, currentPassword: e.target.value });
+                              setPasswordErrors((prev) => ({ ...prev, currentPassword: "" }));
+                            }}
+                            className={`mt-2 w-full rounded-lg border px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 ${
+                              passwordErrors.currentPassword ? "border-red-400" : "border-slate-300"
+                            }`}
+                          />
+                          {passwordErrors.currentPassword && (
+                            <p className="mt-1 text-xs text-red-600">{passwordErrors.currentPassword}</p>
+                          )}
+                        </div>
+                        <div>
+                          <label className="text-slate-600">New Password</label>
+                          <input
+                            type="password"
+                            value={passwordForm.newPassword}
+                            onChange={(e) => {
+                              setPasswordForm({ ...passwordForm, newPassword: e.target.value });
+                              setPasswordErrors((prev) => ({ ...prev, newPassword: "" }));
+                            }}
+                            className={`mt-2 w-full rounded-lg border px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 ${
+                              passwordErrors.newPassword ? "border-red-400" : "border-slate-300"
+                            }`}
+                          />
+                          {passwordErrors.newPassword && (
+                            <p className="mt-1 text-xs text-red-600">{passwordErrors.newPassword}</p>
+                          )}
+                        </div>
+                        <div>
+                          <label className="text-slate-600">Confirm New Password</label>
+                          <input
+                            type="password"
+                            value={passwordForm.confirmPassword}
+                            onChange={(e) => {
+                              setPasswordForm({ ...passwordForm, confirmPassword: e.target.value });
+                              setPasswordErrors((prev) => ({ ...prev, confirmPassword: "" }));
+                            }}
+                            className={`mt-2 w-full rounded-lg border px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 ${
+                              passwordErrors.confirmPassword ? "border-red-400" : "border-slate-300"
+                            }`}
+                          />
+                          {passwordErrors.confirmPassword && (
+                            <p className="mt-1 text-xs text-red-600">{passwordErrors.confirmPassword}</p>
+                          )}
+                        </div>
+                        <button
+                          onClick={handleUpdateStudentPassword}
+                          className="w-full rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+                        >
+                          Update Password
+                        </button>
+                      </div>
                     </div>
                   )}
                 </div>
 
-                {isEditingSettings && (
-                  <div className="rounded-xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
-                    <h4 className="font-semibold text-slate-900">Password Reset</h4>
-                    <div className="mt-4 space-y-4 text-sm">
-                      <div>
-                        <label className="text-slate-600">Current Password</label>
+                <div className="rounded-xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
+                  <h4 className="font-semibold text-slate-900">Time Format</h4>
+                  <p className="mt-1 text-sm text-slate-600">Choose how time is displayed across your dashboard</p>
+                  {isEditingSettings ? (
+                    <div className="mt-4 flex flex-wrap gap-3">
+                      <label className="flex items-center gap-2 rounded-lg border border-slate-200 px-4 py-2 text-sm text-slate-700">
                         <input
-                          type="password"
-                          value={passwordForm.currentPassword}
-                          onChange={(e) => {
-                            setPasswordForm({ ...passwordForm, currentPassword: e.target.value });
-                            setPasswordErrors((prev) => ({ ...prev, currentPassword: "" }));
-                          }}
-                          className={`mt-2 w-full rounded-lg border px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 ${
-                            passwordErrors.currentPassword ? "border-red-400" : "border-slate-300"
-                          }`}
+                          type="radio"
+                          name="timeFormat"
+                          checked={studentSettings.timeFormat === "24"}
+                          onChange={() => setStudentSettings({ ...studentSettings, timeFormat: "24" })}
+                          className="h-4 w-4 text-blue-600 focus:ring-blue-500"
                         />
-                        {passwordErrors.currentPassword && (
-                          <p className="mt-1 text-xs text-red-600">{passwordErrors.currentPassword}</p>
-                        )}
-                      </div>
-                      <div>
-                        <label className="text-slate-600">New Password</label>
+                        24-hour
+                      </label>
+                      <label className="flex items-center gap-2 rounded-lg border border-slate-200 px-4 py-2 text-sm text-slate-700">
                         <input
-                          type="password"
-                          value={passwordForm.newPassword}
-                          onChange={(e) => {
-                            setPasswordForm({ ...passwordForm, newPassword: e.target.value });
-                            setPasswordErrors((prev) => ({ ...prev, newPassword: "" }));
-                          }}
-                          className={`mt-2 w-full rounded-lg border px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 ${
-                            passwordErrors.newPassword ? "border-red-400" : "border-slate-300"
-                          }`}
+                          type="radio"
+                          name="timeFormat"
+                          checked={studentSettings.timeFormat === "12"}
+                          onChange={() => setStudentSettings({ ...studentSettings, timeFormat: "12" })}
+                          className="h-4 w-4 text-blue-600 focus:ring-blue-500"
                         />
-                        {passwordErrors.newPassword && (
-                          <p className="mt-1 text-xs text-red-600">{passwordErrors.newPassword}</p>
-                        )}
-                      </div>
-                      <div>
-                        <label className="text-slate-600">Confirm New Password</label>
-                        <input
-                          type="password"
-                          value={passwordForm.confirmPassword}
-                          onChange={(e) => {
-                            setPasswordForm({ ...passwordForm, confirmPassword: e.target.value });
-                            setPasswordErrors((prev) => ({ ...prev, confirmPassword: "" }));
-                          }}
-                          className={`mt-2 w-full rounded-lg border px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 ${
-                            passwordErrors.confirmPassword ? "border-red-400" : "border-slate-300"
-                          }`}
-                        />
-                        {passwordErrors.confirmPassword && (
-                          <p className="mt-1 text-xs text-red-600">{passwordErrors.confirmPassword}</p>
-                        )}
-                      </div>
-                      <button
-                        onClick={handleUpdateStudentPassword}
-                        className="w-full rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
-                      >
-                        Update Password
-                      </button>
+                        12-hour
+                      </label>
                     </div>
-                  </div>
-                )}
+                  ) : (
+                    <p className="mt-3 text-sm text-slate-700">
+                      Current format: {studentSettings.timeFormat === "12" ? "12-hour" : "24-hour"}
+                    </p>
+                  )}
+                </div>
               </div>
-
-              <div className="rounded-xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
-                <h4 className="font-semibold text-slate-900">Time Format</h4>
-                <p className="mt-1 text-sm text-slate-600">Choose how time is displayed across your dashboard</p>
-                {isEditingSettings ? (
-                  <div className="mt-4 flex flex-wrap gap-3">
-                    <label className="flex items-center gap-2 rounded-lg border border-slate-200 px-4 py-2 text-sm text-slate-700">
-                      <input
-                        type="radio"
-                        name="timeFormat"
-                        checked={studentSettings.timeFormat === "24"}
-                        onChange={() => setStudentSettings({ ...studentSettings, timeFormat: "24" })}
-                        className="h-4 w-4 text-blue-600 focus:ring-blue-500"
-                      />
-                      24-hour
-                    </label>
-                    <label className="flex items-center gap-2 rounded-lg border border-slate-200 px-4 py-2 text-sm text-slate-700">
-                      <input
-                        type="radio"
-                        name="timeFormat"
-                        checked={studentSettings.timeFormat === "12"}
-                        onChange={() => setStudentSettings({ ...studentSettings, timeFormat: "12" })}
-                        className="h-4 w-4 text-blue-600 focus:ring-blue-500"
-                      />
-                      12-hour
-                    </label>
-                  </div>
-                ) : (
-                  <p className="mt-3 text-sm text-slate-700">
-                    Current format: {studentSettings.timeFormat === "12" ? "12-hour" : "24-hour"}
-                  </p>
-                )}
-              </div>
-            </div>
-          )}
-        </main>
+            )}
+          </main>
+        </div>
       </div>
-    </div>
+    </>
   );
 }
 
