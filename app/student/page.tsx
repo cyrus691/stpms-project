@@ -486,11 +486,12 @@ export default function StudentPage() {
       const url = isEditing ? `/api/student-reminders/${editingReminderId}` : "/api/student-reminders";
       const method = isEditing ? "PATCH" : "POST";
 
-      // Convert local datetime-local string to UTC ISO string for remindAt
+      // Convert local datetime-local string to ISO string
       let remindAtISO = reminderForm.remindAt;
       if (reminderForm.remindAt) {
+        // datetime-local is already in user's local time, just convert to ISO
         const localDate = new Date(reminderForm.remindAt);
-        remindAtISO = new Date(localDate.getTime() - localDate.getTimezoneOffset() * 60000).toISOString();
+        remindAtISO = localDate.toISOString();
       }
       const response = await fetch(url, {
         method,
@@ -530,13 +531,17 @@ export default function StudentPage() {
 
   const handleEditReminder = (reminder: StudentReminder) => {
     setEditingReminderId(reminder._id);
-    // Convert UTC or ISO string to local datetime-local string
+    // Convert ISO string to local datetime-local format
     let localRemindAt = "";
     if (reminder.remindAt) {
       const date = new Date(reminder.remindAt);
-      const tzOffset = date.getTimezoneOffset() * 60000;
-      const localISO = new Date(date.getTime() - tzOffset).toISOString().slice(0, 16);
-      localRemindAt = localISO;
+      // Format as YYYY-MM-DDTHH:MM for datetime-local input
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const day = String(date.getDate()).padStart(2, '0');
+      const hours = String(date.getHours()).padStart(2, '0');
+      const minutes = String(date.getMinutes()).padStart(2, '0');
+      localRemindAt = `${year}-${month}-${day}T${hours}:${minutes}`;
     }
     setReminderForm({
       title: reminder.title,
