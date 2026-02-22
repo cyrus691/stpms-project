@@ -635,9 +635,16 @@ export default function BusinessPage() {
         setSalesLoading(true);
         setInventoryLoading(true);
       }
-      const expensesPromise = userId ? fetch(`/api/expenses?userId=${userId}`) : fetch("/api/expenses");
-      const salesPromise = userId ? fetch(`/api/business-sales?userId=${userId}`) : fetch("/api/business-sales", { credentials: "include" });
-      const inventoryPromise = userId ? fetch(`/api/inventory?userId=${userId}`, { cache: "no-store" }) : fetch("/api/inventory", { credentials: "include" });
+      const fetchOptions = { credentials: "include" as const, cache: "no-store" as const };
+      const expensesPromise = userId 
+        ? fetch(`/api/expenses?userId=${userId}`, fetchOptions) 
+        : fetch("/api/expenses", fetchOptions);
+      const salesPromise = userId 
+        ? fetch(`/api/business-sales?userId=${userId}`, fetchOptions) 
+        : fetch("/api/business-sales", fetchOptions);
+      const inventoryPromise = userId 
+        ? fetch(`/api/inventory?userId=${userId}`, fetchOptions) 
+        : fetch("/api/inventory", fetchOptions);
       const [expensesRes, salesRes, inventoryRes] = await Promise.all([
         expensesPromise,
         salesPromise,
