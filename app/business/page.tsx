@@ -1419,14 +1419,24 @@ export default function BusinessPage() {
                   <div className="flex items-center justify-between">
                     <div className="min-w-0 flex-1">
                       <p className="text-sm font-medium text-slate-600">Total Income Received</p>
-                      <p className="mt-2 text-2xl font-bold text-green-600 truncate break-all" style={{ wordBreak: 'break-all' }}>
-                        {formatCurrency(
-                          cashSales.reduce((sum, sale) => sum + sale.totalAmount, 0) +
-                          creditInvoices.reduce((sum, inv) => sum + (inv.amount - (typeof inv.balance === "number" ? inv.balance : 0)), 0),
-                          currency,
-                          currencyRates
-                        )}
-                      </p>
+                      <div className="relative group">
+                        <p className="mt-2 text-2xl font-bold text-green-600 truncate cursor-help">
+                          {formatCurrency(
+                            cashSales.reduce((sum, sale) => sum + sale.totalAmount, 0) +
+                            creditInvoices.reduce((sum, inv) => sum + (inv.amount - (typeof inv.balance === "number" ? inv.balance : 0)), 0),
+                            currency,
+                            currencyRates
+                          )}
+                        </p>
+                        <span className="pointer-events-none absolute left-0 -top-2 z-20 w-max max-w-xs -translate-y-full rounded-lg bg-slate-900 px-2 py-1 text-xs text-white opacity-0 shadow-lg transition-opacity duration-150 group-hover:opacity-100">
+                          {formatCurrency(
+                            cashSales.reduce((sum, sale) => sum + sale.totalAmount, 0) +
+                            creditInvoices.reduce((sum, inv) => sum + (inv.amount - (typeof inv.balance === "number" ? inv.balance : 0)), 0),
+                            currency,
+                            currencyRates
+                          )}
+                        </span>
+                      </div>
                       <p className="mt-1 text-xs text-slate-500">Includes cash sales</p>
                     </div>
                     <div className="flex-shrink-0 rounded-full bg-green-100 p-3 ml-2">
@@ -1441,9 +1451,14 @@ export default function BusinessPage() {
                   <div className="flex items-center justify-between">
                     <div className="min-w-0 flex-1">
                       <p className="text-sm font-medium text-slate-600">Total Expenses</p>
-                      <p className="mt-2 text-2xl font-bold text-red-600 truncate break-all" style={{ wordBreak: 'break-all' }}>
-                        {formatCurrency(totalExpenses, currency, currencyRates)}
-                      </p>
+                      <div className="relative group">
+                        <p className="mt-2 text-2xl font-bold text-red-600 truncate cursor-help">
+                          {formatCurrency(totalExpenses, currency, currencyRates)}
+                        </p>
+                        <span className="pointer-events-none absolute left-0 -top-2 z-20 w-max max-w-xs -translate-y-full rounded-lg bg-slate-900 px-2 py-1 text-xs text-white opacity-0 shadow-lg transition-opacity duration-150 group-hover:opacity-100">
+                          {formatCurrency(totalExpenses, currency, currencyRates)}
+                        </span>
+                      </div>
                       <p className="mt-1 text-xs text-slate-500">+8% from last month</p>
                     </div>
                     <div className="flex-shrink-0 rounded-full bg-red-100 p-3 ml-2">
@@ -1458,16 +1473,28 @@ export default function BusinessPage() {
                   <div className="flex items-center justify-between">
                     <div className="min-w-0 flex-1">
                       <p className="text-sm font-medium text-slate-600">Net Profit</p>
-                      <p className="mt-2 text-2xl font-bold text-blue-600 truncate break-all" style={{ wordBreak: 'break-all' }}>
-                        {formatCurrency(
-                          (
-                            cashSales.reduce((sum, sale) => sum + sale.totalAmount, 0) +
-                            creditInvoices.reduce((sum, inv) => sum + (inv.amount - (typeof inv.balance === "number" ? inv.balance : 0)), 0)
-                          ) - totalExpenses,
-                          currency,
-                          currencyRates
-                        )}
-                      </p>
+                      <div className="relative group">
+                        <p className="mt-2 text-2xl font-bold text-blue-600 truncate cursor-help">
+                          {formatCurrency(
+                            (
+                              cashSales.reduce((sum, sale) => sum + sale.totalAmount, 0) +
+                              creditInvoices.reduce((sum, inv) => sum + (inv.amount - (typeof inv.balance === "number" ? inv.balance : 0)), 0)
+                            ) - totalExpenses,
+                            currency,
+                            currencyRates
+                          )}
+                        </p>
+                        <span className="pointer-events-none absolute left-0 -top-2 z-20 w-max max-w-xs -translate-y-full rounded-lg bg-slate-900 px-2 py-1 text-xs text-white opacity-0 shadow-lg transition-opacity duration-150 group-hover:opacity-100">
+                          {formatCurrency(
+                            (
+                              cashSales.reduce((sum, sale) => sum + sale.totalAmount, 0) +
+                              creditInvoices.reduce((sum, inv) => sum + (inv.amount - (typeof inv.balance === "number" ? inv.balance : 0)), 0)
+                            ) - totalExpenses,
+                            currency,
+                            currencyRates
+                          )}
+                        </span>
+                      </div>
                       <p className="mt-1 text-xs text-slate-500">
                         Profit margin: {
                           (cashSales.reduce((sum, sale) => sum + sale.totalAmount, 0) +
@@ -1497,9 +1524,14 @@ export default function BusinessPage() {
                   <div className="flex items-center justify-between">
                     <div className="min-w-0 flex-1">
                       <p className="text-sm font-medium text-slate-600">Pending Invoices</p>
-                      <p className="mt-2 text-2xl font-bold text-amber-600 truncate break-all" style={{ wordBreak: 'break-all' }}>
-                        {pendingInvoices.length}
-                      </p>
+                      <div className="relative group">
+                        <p className="mt-2 text-2xl font-bold text-amber-600 truncate cursor-help">
+                          {pendingInvoices.length}
+                        </p>
+                        <span className="pointer-events-none absolute left-0 -top-2 z-20 w-max max-w-xs -translate-y-full rounded-lg bg-slate-900 px-2 py-1 text-xs text-white opacity-0 shadow-lg transition-opacity duration-150 group-hover:opacity-100">
+                          {pendingInvoices.length}
+                        </span>
+                      </div>
                       <p className="mt-1 text-xs text-slate-500">{formatCurrency(pendingInvoices.reduce((sum, inv) => sum + inv.amount, 0), currency, currencyRates)} awaiting</p>
                     </div>
                     <div className="flex-shrink-0 rounded-full bg-amber-100 p-3 ml-2">
@@ -1514,12 +1546,20 @@ export default function BusinessPage() {
                   <div className="flex items-center justify-between">
                     <div className="min-w-0 flex-1">
                       <p className="text-sm font-medium text-slate-600">Losses</p>
-                      <p className={`mt-2 text-2xl font-bold ${((cashSales.reduce((sum, sale) => sum + sale.totalAmount, 0) + creditInvoices.reduce((sum, inv) => sum + (inv.amount - (typeof inv.balance === "number" ? inv.balance : 0)), 0)) - totalExpenses) < 0 ? 'text-red-600' : 'text-slate-400'}`}
-                        style={{ wordBreak: 'break-all' }}>
-                        {((cashSales.reduce((sum, sale) => sum + sale.totalAmount, 0) + creditInvoices.reduce((sum, inv) => sum + (inv.amount - (typeof inv.balance === "number" ? inv.balance : 0)), 0)) - totalExpenses) < 0
-                          ? formatCurrency(Math.abs((cashSales.reduce((sum, sale) => sum + sale.totalAmount, 0) + creditInvoices.reduce((sum, inv) => sum + (inv.amount - (typeof inv.balance === "number" ? inv.balance : 0)), 0)) - totalExpenses), currency, currencyRates)
-                          : '--'}
-                      </p>
+                      <div className="relative group">
+                        <p
+                          className={`mt-2 text-2xl font-bold ${((cashSales.reduce((sum, sale) => sum + sale.totalAmount, 0) + creditInvoices.reduce((sum, inv) => sum + (inv.amount - (typeof inv.balance === "number" ? inv.balance : 0)), 0)) - totalExpenses) < 0 ? 'text-red-600' : 'text-slate-400'} truncate cursor-help`}
+                        >
+                          {((cashSales.reduce((sum, sale) => sum + sale.totalAmount, 0) + creditInvoices.reduce((sum, inv) => sum + (inv.amount - (typeof inv.balance === "number" ? inv.balance : 0)), 0)) - totalExpenses) < 0
+                            ? formatCurrency(Math.abs((cashSales.reduce((sum, sale) => sum + sale.totalAmount, 0) + creditInvoices.reduce((sum, inv) => sum + (inv.amount - (typeof inv.balance === "number" ? inv.balance : 0)), 0)) - totalExpenses), currency, currencyRates)
+                            : "--"}
+                        </p>
+                        <span className="pointer-events-none absolute left-0 -top-2 z-20 w-max max-w-xs -translate-y-full rounded-lg bg-slate-900 px-2 py-1 text-xs text-white opacity-0 shadow-lg transition-opacity duration-150 group-hover:opacity-100">
+                          {((cashSales.reduce((sum, sale) => sum + sale.totalAmount, 0) + creditInvoices.reduce((sum, inv) => sum + (inv.amount - (typeof inv.balance === "number" ? inv.balance : 0)), 0)) - totalExpenses) < 0
+                            ? formatCurrency(Math.abs((cashSales.reduce((sum, sale) => sum + sale.totalAmount, 0) + creditInvoices.reduce((sum, inv) => sum + (inv.amount - (typeof inv.balance === "number" ? inv.balance : 0)), 0)) - totalExpenses), currency, currencyRates)
+                            : "--"}
+                        </span>
+                      </div>
                       <p className="mt-1 text-xs text-slate-500">{((cashSales.reduce((sum, sale) => sum + sale.totalAmount, 0) + creditInvoices.reduce((sum, inv) => sum + (inv.amount - (typeof inv.balance === "number" ? inv.balance : 0)), 0)) - totalExpenses) < 0 ? 'You are operating at a loss this period.' : 'No losses this period.'}</p>
                     </div>
                   </div>
