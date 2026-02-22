@@ -1023,25 +1023,6 @@ export default function StudentPage() {
                 </div>
               )}
             </div>
-
-            {/* User info */}
-            <div className="border-t border-blue-500 px-6 py-4">
-              <div className="mb-3 flex items-center gap-4">
-                <div className="flex h-12 w-12 lg:h-16 lg:w-16 items-center justify-center rounded-full bg-blue-400 text-lg lg:text-2xl font-bold">
-                  {avatarInitials}
-                </div>
-                <div className="flex-1">
-                  <p className="text-lg lg:text-2xl font-semibold">{displayName}</p>
-                  <p className="text-base lg:text-lg text-blue-200">{accountLabel}</p>
-                </div>
-              </div>
-              <button
-                onClick={handleLogout}
-                className="w-full rounded-lg bg-red-500 px-4 py-2 text-base sm:text-lg font-semibold text-white transition hover:bg-red-600 mt-3"
-              >
-                Logout
-              </button>
-            </div>
           </nav>
 
           {/* User info */}

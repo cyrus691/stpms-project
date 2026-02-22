@@ -6,7 +6,16 @@ import mongoose from 'mongoose';
 import { getStudentReminderModel } from '@/lib/models/StudentReminder';
 import { getUserModel } from '@/lib/models/User';
 
-export async function POST() {
+export async function POST(request: Request) {
+  // Verify cron secret for security
+  const cronSecret = request.headers.get('X-Cron-Secret');
+  if (process.env.CRON_SECRET && cronSecret !== process.env.CRON_SECRET) {
+    return new Response(JSON.stringify({ error: 'Unauthorized' }), { 
+      status: 401,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+
   const StudentTask = getStudentTaskModel(mongoose.connection);
   const StudentTimetableEntry = getStudentTimetableEntryModel(mongoose.connection);
   const User = getUserModel(mongoose.connection);

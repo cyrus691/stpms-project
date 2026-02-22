@@ -1,0 +1,38 @@
+name: Send Scheduled Notifications
+
+on:
+  schedule:
+    # Runs every 10 minutes
+    - cron: '*/10 * * * *'
+  
+  # Allows manual trigger from Actions tab
+  workflow_dispatch:
+
+jobs:
+  trigger-notifications:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Send notification trigger
+        run: |
+          response=$(curl -s -w "\n%{http_code}" -X POST \
+            ${{ secrets.APP_URL }}/api/send-scheduled-notifications \
+            -H "Content-Type: application/json" \
+            -H "X-Cron-Secret: ${{ secrets.CRON_SECRET }}")
+          
+          http_code=$(echo "$response" | tail -n1)
+          body=$(echo "$response" | head -n-1)
+          
+          echo "HTTP Status: $http_code"
+          echo "Response: $body"
+          
+          if [ "$http_code" != "200" ]; then
+            echo "Error: Request failed with status $http_code"
+            exit 1
+          fi
+          
+          echo "✅ Notifications sent successfully"
+      
+      - name: Log timestamp
+        if: always()
+        run: echo "Job completed at $(date -u)"
