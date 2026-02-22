@@ -1420,7 +1420,7 @@ export default function BusinessPage() {
                     <div className="min-w-0 flex-1">
                       <p className="text-sm font-medium text-slate-600">Total Income Received</p>
                       <div className="relative group">
-                        <p className="mt-2 text-2xl font-bold text-green-600 truncate cursor-help">
+                        <p className="mt-2 text-2xl md:text-xl lg:text-lg font-bold text-green-600 truncate cursor-help">
                           {formatCurrency(
                             cashSales.reduce((sum, sale) => sum + sale.totalAmount, 0) +
                             creditInvoices.reduce((sum, inv) => sum + (inv.amount - (typeof inv.balance === "number" ? inv.balance : 0)), 0),
@@ -1452,7 +1452,7 @@ export default function BusinessPage() {
                     <div className="min-w-0 flex-1">
                       <p className="text-sm font-medium text-slate-600">Total Expenses</p>
                       <div className="relative group">
-                        <p className="mt-2 text-2xl font-bold text-red-600 truncate cursor-help">
+                        <p className="mt-2 text-2xl md:text-xl lg:text-lg font-bold text-red-600 truncate cursor-help">
                           {formatCurrency(totalExpenses, currency, currencyRates)}
                         </p>
                         <span className="pointer-events-none absolute left-0 -top-2 z-20 w-max max-w-xs -translate-y-full rounded-lg bg-slate-900 px-2 py-1 text-xs text-white opacity-0 shadow-lg transition-opacity duration-150 group-hover:opacity-100">
@@ -1474,7 +1474,7 @@ export default function BusinessPage() {
                     <div className="min-w-0 flex-1">
                       <p className="text-sm font-medium text-slate-600">Net Profit</p>
                       <div className="relative group">
-                        <p className="mt-2 text-2xl font-bold text-blue-600 truncate cursor-help">
+                        <p className="mt-2 text-2xl md:text-xl lg:text-lg font-bold text-blue-600 truncate cursor-help">
                           {formatCurrency(
                             (
                               cashSales.reduce((sum, sale) => sum + sale.totalAmount, 0) +
@@ -1525,7 +1525,7 @@ export default function BusinessPage() {
                     <div className="min-w-0 flex-1">
                       <p className="text-sm font-medium text-slate-600">Pending Invoices</p>
                       <div className="relative group">
-                        <p className="mt-2 text-2xl font-bold text-amber-600 truncate cursor-help">
+                        <p className="mt-2 text-2xl md:text-xl lg:text-lg font-bold text-amber-600 truncate cursor-help">
                           {pendingInvoices.length}
                         </p>
                         <span className="pointer-events-none absolute left-0 -top-2 z-20 w-max max-w-xs -translate-y-full rounded-lg bg-slate-900 px-2 py-1 text-xs text-white opacity-0 shadow-lg transition-opacity duration-150 group-hover:opacity-100">
@@ -1548,7 +1548,7 @@ export default function BusinessPage() {
                       <p className="text-sm font-medium text-slate-600">Losses</p>
                       <div className="relative group">
                         <p
-                          className={`mt-2 text-2xl font-bold ${((cashSales.reduce((sum, sale) => sum + sale.totalAmount, 0) + creditInvoices.reduce((sum, inv) => sum + (inv.amount - (typeof inv.balance === "number" ? inv.balance : 0)), 0)) - totalExpenses) < 0 ? 'text-red-600' : 'text-slate-400'} truncate cursor-help`}
+                          className={`mt-2 text-2xl md:text-xl lg:text-lg font-bold ${((cashSales.reduce((sum, sale) => sum + sale.totalAmount, 0) + creditInvoices.reduce((sum, inv) => sum + (inv.amount - (typeof inv.balance === "number" ? inv.balance : 0)), 0)) - totalExpenses) < 0 ? 'text-red-600' : 'text-slate-400'} truncate cursor-help`}
                         >
                           {((cashSales.reduce((sum, sale) => sum + sale.totalAmount, 0) + creditInvoices.reduce((sum, inv) => sum + (inv.amount - (typeof inv.balance === "number" ? inv.balance : 0)), 0)) - totalExpenses) < 0
                             ? formatCurrency(Math.abs((cashSales.reduce((sum, sale) => sum + sale.totalAmount, 0) + creditInvoices.reduce((sum, inv) => sum + (inv.amount - (typeof inv.balance === "number" ? inv.balance : 0)), 0)) - totalExpenses), currency, currencyRates)
