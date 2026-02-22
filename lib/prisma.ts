@@ -11,12 +11,12 @@ export async function connectToDatabase(): Promise<Connection> {
 
   // Return existing connection promise if one is in progress
   if (connectionPromise) {
-    return connectionPromise;
+    return await connectionPromise;
   }
 
-  const mongoUrl = process.env.DATABASE_URL;
+  const mongoUrl = process.env.DATABASE_URL || process.env.MONGODB_URI;
   if (!mongoUrl) {
-    throw new Error("DATABASE_URL is not defined");
+    throw new Error("DATABASE_URL or MONGODB_URI is not defined");
   }
 
   try {
@@ -28,15 +28,22 @@ export async function connectToDatabase(): Promise<Connection> {
         serverSelectionTimeoutMS: 30000,
         socketTimeoutMS: 60000,
         connectTimeoutMS: 30000,
+        bufferCommands: true,
       });
       cachedConnection = connection.connection;
       connectionPromise = null;
       return cachedConnection;
     })();
 
-    return await connectionPromise;
+    await connectionPromise;
+    // Ensure connection is ready
+    if (!cachedConnection || cachedConnection.readyState !== 1) {
+      throw new Error("MongoDB connection failed to initialize");
+    }
+    return cachedConnection;
   } catch (error) {
     connectionPromise = null;
+    cachedConnection = null;
     console.error("MongoDB connection error:", error);
     throw error;
   }
