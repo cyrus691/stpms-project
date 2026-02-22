@@ -13,25 +13,40 @@ jobs:
     runs-on: ubuntu-latest
     
     steps:
+      - name: Check secrets
+        run: |
+          if [ -z "${{ secrets.APP_URL }}" ]; then
+            echo "❌ ERROR: APP_URL secret is not set!"
+            echo "Please add it at: https://github.com/${{ github.repository }}/settings/secrets/actions"
+            exit 1
+          fi
+          if [ -z "${{ secrets.CRON_SECRET }}" ]; then
+            echo "❌ ERROR: CRON_SECRET secret is not set!"
+            echo "Please add it at: https://github.com/${{ github.repository }}/settings/secrets/actions"
+            exit 1
+          fi
+          echo "✅ Both secrets are configured"
+      
       - name: Send notification trigger
         run: |
-          echo "Sending request to: ${{ secrets.APP_URL }}/api/send-scheduled-notifications"
+          URL="${{ secrets.APP_URL }}/api/send-scheduled-notifications"
+          echo "Calling notification endpoint..."
           
-          http_code=$(curl -s -o response.json -w "%{http_code}" -X POST \
-            "${{ secrets.APP_URL }}/api/send-scheduled-notifications" \
+          http_code=$(curl -s -o response.json -w "%{http_code}" -X POST "$URL" \
             -H "Content-Type: application/json" \
             -H "X-Cron-Secret: ${{ secrets.CRON_SECRET }}")
           
           echo "HTTP Status: $http_code"
-          echo "Response Body:"
-          cat response.json
+          echo "Response:"
+          cat response.json || echo "(no response body)"
           
-          if [ "$http_code" != "200" ]; then
-            echo "❌ Error: Request failed with status $http_code"
+          if [ "$http_code" = "200" ]; then
+            echo "✅ Notifications sent successfully"
+            exit 0
+          else
+            echo "❌ Request failed with status $http_code"
             exit 1
           fi
-          
-          echo "✅ Notifications sent successfully"
       
       - name: Log timestamp
         if: always()
