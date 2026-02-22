@@ -942,7 +942,7 @@ export default function StudentPage() {
   return (
     <>
       <NotificationRegistrationClient />
-      <div className="flex h-screen overflow-hidden bg-slate-50 text-base sm:text-lg md:text-xl">
+      <div className="flex h-screen overflow-hidden bg-slate-50 text-base sm:text-lg md:text-xl lg:text-base">
         {/* Mobile Menu Overlay */}
         {mobileMenuOpen && (
           <div
@@ -959,7 +959,7 @@ export default function StudentPage() {
         >
           {/* Logo/Header */}
           <div className="border-b border-blue-500 px-6 py-5">
-            <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold">STPMS Student</h1>
+            <h1 className="text-2xl sm:text-3xl md:text-4xl lg:text-2xl font-bold">STPMS Student</h1>
             <p className="mt-1 text-sm sm:text-base text-blue-200">Portal</p>
           </div>
 
@@ -972,7 +972,7 @@ export default function StudentPage() {
                   setActiveSection(item.id);
                   setMobileMenuOpen(false);
                 }}
-                className={`flex w-full items-center gap-3 rounded-lg px-4 py-3 text-left text-base sm:text-lg font-medium transition ${
+                className={`flex w-full items-center gap-3 rounded-lg px-4 py-3 text-left text-base sm:text-lg lg:text-base font-medium transition ${
                   activeSection === item.id
                     ? "bg-white text-blue-700 shadow-sm"
                     : "text-blue-100 hover:bg-blue-700 hover:text-white"
@@ -1000,7 +1000,7 @@ export default function StudentPage() {
               {showNotifications && (
                 <div className="absolute left-0 right-0 z-50 mt-2 w-full rounded-xl border border-slate-200 bg-white p-3 shadow-lg">
                   <div className="flex items-center justify-between">
-                    <h4 className="text-base sm:text-lg font-semibold text-slate-900">Notifications</h4>
+                    <h4 className="text-base sm:text-lg lg:text-base font-semibold text-slate-900">Notifications</h4>
                     <button
                       onClick={() => setShowNotifications(false)}
                       className="text-sm text-slate-500 hover:text-slate-700"
@@ -1014,7 +1014,7 @@ export default function StudentPage() {
                     ) : (
                       announcements.map((announcement) => (
                         <div key={announcement._id} className="rounded-lg border border-blue-100 bg-blue-50 p-2">
-                          <p className="font-semibold text-blue-900 text-base sm:text-lg">{announcement.title}</p>
+                          <p className="font-semibold text-blue-900 text-base sm:text-lg lg:text-base">{announcement.title}</p>
                           <p className="text-blue-700 text-sm sm:text-base">{announcement.body}</p>
                         </div>
                       ))
@@ -1028,17 +1028,17 @@ export default function StudentPage() {
           {/* User info */}
           <div className="border-t border-blue-500 px-6 py-4">
             <div className="mb-3 flex items-center gap-4">
-              <div className="flex h-12 w-12 lg:h-16 lg:w-16 items-center justify-center rounded-full bg-blue-400 text-lg lg:text-2xl font-bold">
+              <div className="flex h-12 w-12 lg:h-16 lg:w-16 items-center justify-center rounded-full bg-blue-400 text-lg lg:text-lg font-bold">
                 {avatarInitials}
               </div>
               <div className="flex-1">
-                <p className="text-lg lg:text-2xl font-semibold">{displayName}</p>
-                <p className="text-base lg:text-lg text-blue-200">{accountLabel}</p>
+                <p className="text-lg lg:text-lg font-semibold">{displayName}</p>
+                <p className="text-base lg:text-base text-blue-200">{accountLabel}</p>
               </div>
             </div>
             <button
               onClick={handleLogout}
-              className="w-full rounded-lg bg-red-500 px-4 py-2 text-base sm:text-lg font-semibold text-white transition hover:bg-red-600 mt-3"
+              className="w-full rounded-lg bg-red-500 px-4 py-2 text-base sm:text-lg lg:text-base font-semibold text-white transition hover:bg-red-600 mt-3"
             >
               Logout
             </button>
@@ -1061,7 +1061,7 @@ export default function StudentPage() {
               </button>
 
               <div className="flex-1">
-                <h2 className="text-2xl sm:text-3xl font-bold text-slate-900 lg:text-4xl">
+                <h2 className="text-2xl sm:text-3xl font-bold text-slate-900 lg:text-2xl">
                   {menuItems.find((m) => m.id === activeSection)?.label}
                 </h2>
                 <p className="hidden text-base text-slate-600 sm:block">
@@ -1086,7 +1086,7 @@ export default function StudentPage() {
                   {showNotifications && (
                     <div className="absolute right-0 z-50 mt-2 w-80 rounded-xl border border-slate-200 bg-white p-3 shadow-lg">
                       <div className="flex items-center justify-between">
-                        <h4 className="text-base sm:text-lg font-semibold text-slate-900">Notifications</h4>
+                        <h4 className="text-base sm:text-lg lg:text-base font-semibold text-slate-900">Notifications</h4>
                         <button
                           onClick={() => setShowNotifications(false)}
                           className="text-sm text-slate-500 hover:text-slate-700"
@@ -1100,7 +1100,7 @@ export default function StudentPage() {
                         ) : (
                           announcements.map((announcement) => (
                             <div key={announcement._id} className="rounded-lg border border-blue-100 bg-blue-50 p-2">
-                              <p className="font-semibold text-blue-900 text-base sm:text-lg">{announcement.title}</p>
+                              <p className="font-semibold text-blue-900 text-base sm:text-lg lg:text-base">{announcement.title}</p>
                               <p className="text-blue-700 text-sm sm:text-base">{announcement.body}</p>
                             </div>
                           ))
@@ -1137,10 +1137,10 @@ export default function StudentPage() {
                     >
                       <div className="flex items-center justify-between">
                         <p className="text-sm font-medium text-slate-600">{stat.label}</p>
-                        <span className="text-2xl">{stat.icon}</span>
+                        <span className="text-xl lg:text-lg">{stat.icon}</span>
                       </div>
                       <div className="mt-3">
-                        <span className="text-3xl font-bold text-slate-900">{stat.value}</span>
+                        <span className="text-2xl md:text-3xl lg:text-xl font-bold text-slate-900">{stat.value}</span>
                       </div>
                     </div>
                   ))}
@@ -1151,7 +1151,7 @@ export default function StudentPage() {
                   {/* Upcoming Tasks */}
                   <div className="rounded-xl bg-white p-4 shadow-sm ring-1 ring-slate-200 lg:p-6">
                     <div className="mb-4 flex items-center justify-between">
-                      <h3 className="text-xl md:text-2xl font-bold text-slate-900">Upcoming Tasks</h3>
+                      <h3 className="text-xl md:text-2xl lg:text-lg font-bold text-slate-900">Upcoming Tasks</h3>
                       <button 
                         onClick={() => setActiveSection("tasks")}
                         className="text-base md:text-lg font-semibold text-blue-600 hover:text-blue-700"
@@ -1173,7 +1173,7 @@ export default function StudentPage() {
                           <div key={task._id} className="flex items-start gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
                             <div className="flex h-5 w-5 items-center justify-center rounded-full border-2 border-slate-400 bg-white"></div>
                             <div className="flex-1 min-w-0">
-                              <p className="text-lg md:text-xl font-semibold text-slate-900 truncate">{task.title}</p>
+                              <p className="text-lg md:text-xl lg:text-base font-semibold text-slate-900 truncate">{task.title}</p>
                               {task.dueDate && (
                                 <p className="text-base md:text-lg text-slate-600">
                                   Due: {new Date(task.dueDate).toLocaleDateString()}
@@ -1189,7 +1189,7 @@ export default function StudentPage() {
                   {/* Active Reminders */}
                   <div className="rounded-xl bg-white p-4 shadow-sm ring-1 ring-slate-200 lg:p-6">
                     <div className="mb-4 flex items-center justify-between">
-                      <h3 className="text-xl md:text-2xl font-bold text-slate-900">Active Reminders</h3>
+                      <h3 className="text-xl md:text-2xl lg:text-lg font-bold text-slate-900">Active Reminders</h3>
                       <button 
                         onClick={() => setActiveSection("reminders")}
                         className="text-base md:text-lg font-semibold text-blue-600 hover:text-blue-700"
@@ -1213,7 +1213,7 @@ export default function StudentPage() {
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
                             </svg>
                             <div className="flex-1 min-w-0">
-                              <p className="text-lg md:text-xl font-semibold text-slate-900">{reminder.title}</p>
+                              <p className="text-lg md:text-xl lg:text-base font-semibold text-slate-900">{reminder.title}</p>
                               {reminder.note && (
                                 <p className="text-base md:text-lg text-slate-600">{reminder.note}</p>
                               )}
@@ -1233,7 +1233,7 @@ export default function StudentPage() {
                 {/* Today's Schedule */}
                 <div className="rounded-xl bg-white p-4 shadow-sm ring-1 ring-slate-200 lg:p-6">
                   <div className="mb-4 flex items-center justify-between">
-                    <h3 className="text-xl md:text-2xl font-bold text-slate-900">Today&apos;s Schedule</h3>
+                    <h3 className="text-xl md:text-2xl lg:text-lg font-bold text-slate-900">Today&apos;s Schedule</h3>
                     <button 
                       onClick={() => setActiveSection("timetable")}
                       className="text-base md:text-lg font-semibold text-blue-600 hover:text-blue-700"
@@ -1264,7 +1264,7 @@ export default function StudentPage() {
                           </div>
                           <div className="h-12 w-1 rounded-full bg-blue-500"></div>
                           <div className="flex-1">
-                            <p className="text-lg md:text-xl font-semibold text-slate-900">{entry.className}</p>
+                            <p className="text-lg md:text-xl lg:text-base font-semibold text-slate-900">{entry.className}</p>
                             {entry.venue && (
                               <p className="text-base md:text-lg text-slate-600">📍 {entry.venue}</p>
                             )}
@@ -1372,7 +1372,7 @@ export default function StudentPage() {
                   ].map((stat) => (
                     <div key={stat.label} className="rounded-xl bg-white p-4 shadow-sm ring-1 ring-slate-200">
                       <p className="text-sm text-slate-600">{stat.label}</p>
-                      <p className="mt-2 text-2xl font-bold text-slate-900">{stat.value}</p>
+                      <p className="mt-2 text-xl md:text-2xl lg:text-lg font-bold text-slate-900">{stat.value}</p>
                     </div>
                   ))}
                 </div>
@@ -2232,7 +2232,7 @@ export default function StudentPage() {
               <div className="space-y-6">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <div>
-                    <h3 className="text-xl font-semibold text-slate-900">Account Settings</h3>
+                    <h3 className="text-lg md:text-xl lg:text-base font-semibold text-slate-900">Account Settings</h3>
                     <p className="text-sm text-slate-600">Customize your account settings</p>
                   </div>
                   {isEditingSettings ? (
