@@ -22,8 +22,10 @@ messaging.onBackgroundMessage(function(payload) {
     icon: payload.notification.icon || '/icon-192x192.png',
     image: payload.notification.image || '/notification-banner.png',
     badge: '/badge-72x72.png',
-    requireInteraction: true, // Stays visible until user acts
-    vibrate: [300, 100, 300, 100, 300],
+    requireInteraction: true, // NEVER auto-dismiss - stays until user acts
+    persistent: true,
+    sticky: true, // Android-specific: notification stays in tray
+    vibrate: [300, 100, 300, 100, 300, 100, 300], // Longer vibration
     tag: payload.data?.reminderId || payload.data?.taskId || payload.data?.timetableId || 'stpms-notification',
     renotify: true, // Re-alert even if tag is same
     silent: false,
@@ -50,10 +52,14 @@ messaging.onBackgroundMessage(function(payload) {
 });
 
 self.addEventListener('notificationclick', function(event) {
-  event.notification.close();
+  // ONLY close if user clicks "Dismiss" button - otherwise keep notification visible
+  if (event.action === 'dismiss') {
+    event.notification.close();
+    return;
+  }
   
+  // For "View" button or clicking notification body - open app but KEEP notification
   if (event.action === 'view') {
-    // Open the app and navigate to relevant page
     const urlToOpen = event.notification.data?.url || '/student';
     event.waitUntil(
       clients.matchAll({ type: 'window', includeUncontrolled: true })
@@ -71,12 +77,21 @@ self.addEventListener('notificationclick', function(event) {
           }
         })
     );
-  } else if (event.action === 'dismiss') {
-    // Just close, already handled above
   } else {
-    // Default click (not on an action button) - open the app
+    // Default click (not on an action button) - open the app, keep notification
     event.waitUntil(
-      clients.openWindow('/student')
+      clients.matchAll({ type: 'window', includeUncontrolled: true })
+        .then(function(clientList) {
+          for (let i = 0; i < clientList.length; i++) {
+            let client = clientList[i];
+            if (client.url.includes(self.location.origin) && 'focus' in client) {
+              return client.focus();
+            }
+          }
+          if (clients.openWindow) {
+            return clients.openWindow('/student');
+          }
+        })
     );
   }
 });
