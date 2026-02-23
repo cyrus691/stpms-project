@@ -1,4 +1,5 @@
 export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 import { getStudentTaskModel } from '@/lib/models/StudentTask';
 import { getStudentTimetableEntryModel } from '@/lib/models/StudentTimetableEntry';
 import { sendFcmNotification } from '@/lib/send-fcm-notification';
