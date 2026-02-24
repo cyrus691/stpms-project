@@ -50,38 +50,47 @@ export default function NotificationRegistrationClient() {
         }
 
         console.log("[FCM] Permission granted! Registering service worker...");
+        
+        // Wait a bit for service worker infrastructure to be ready
+        await new Promise(resolve => setTimeout(resolve, 500));
+        
         // Register service worker
         let registration;
         try {
-          registration = await navigator.serviceWorker.register("/firebase-messaging-sw.js", { scope: "/" });
+          registration = await navigator.serviceWorker.register("/firebase-messaging-sw.js", { scope: "/", updateViaCache: 'none' });
           console.log("[FCM] ✅ Service worker registered successfully", registration);
+          
+          if (!registration) {
+            console.error("[FCM] ❌ Registration returned null");
+            setNotificationStatus("❌ Service worker registration returned null");
+            return;
+          }
         } catch (regError) {
           const regErrorMsg = regError instanceof Error ? regError.message : String(regError);
           console.error("[FCM] ❌ Service worker registration FAILED:", regErrorMsg, regError);
-          setNotificationStatus("❌ Service worker registration failed: " + regErrorMsg);
+          setNotificationStatus("❌ Service worker failed: " + regErrorMsg);
           return;
         }
 
-        if (!registration) {
-          console.error("[FCM] ❌ Registration object is null/undefined!");
-          setNotificationStatus("❌ Service worker registration returned null");
-          return;
-        }
-
+        // Wait for service worker to be ready with longer timeout
         try {
-          await navigator.serviceWorker.ready;
+          const readyPromise = navigator.serviceWorker.ready;
+          const timeoutPromise = new Promise((_, reject) => 
+            setTimeout(() => reject(new Error("Service worker ready timeout")), 5000)
+          );
+          await Promise.race([readyPromise, timeoutPromise]);
           console.log("[FCM] ✅ Service worker ready");
         } catch (readyError) {
           const readyMsg = readyError instanceof Error ? readyError.message : String(readyError);
-          console.error("[FCM] ❌ Service worker ready check failed:", readyMsg);
-          setNotificationStatus("❌ Service worker not ready: " + readyMsg);
-          return;
+          console.error("[FCM] ⚠️ Service worker ready check issue:", readyMsg);
+          console.log("[FCM] Continuing anyway, might still work...");
         }
         
         // Get FCM token
         console.log("[FCM] Getting FCM token from Firebase...");
         console.log("[FCM] Config - vapidKey:", firebaseMessaging.vapidKey ? "✅ set" : "❌ missing");
         console.log("[FCM] Config - messaging:", firebaseMessaging.messaging ? "✅ set" : "❌ missing");
+        console.log("[FCM] Config - registration:", registration ? "✅ exists" : "❌ null");
         
         let currentToken;
         try {
