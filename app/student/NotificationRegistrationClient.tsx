@@ -39,18 +39,25 @@ export default function NotificationRegistrationClient() {
     // Request notification permission
     const requestNotificationPermission = async () => {
       try {
+        console.log("[FCM] Starting notification permission request...");
         const permission = await Notification.requestPermission();
+        console.log("[FCM] Notification permission result:", permission);
         
         if (permission !== "granted") {
+          console.error("[FCM] ❌ User denied notification permission");
           setNotificationStatus("⚠️ Notification permission denied");
           return;
         }
 
+        console.log("[FCM] Permission granted! Registering service worker...");
         // Register service worker
         const registration = await navigator.serviceWorker.register("/firebase-messaging-sw.js");
+        console.log("[FCM] Service worker registered:", registration);
         await navigator.serviceWorker.ready;
+        console.log("[FCM] Service worker ready");
         
         // Get FCM token
+        console.log("[FCM] Getting FCM token from Firebase...");
         const currentToken = await firebaseMessaging.getToken(
           firebaseMessaging.messaging, 
           { 
@@ -58,27 +65,35 @@ export default function NotificationRegistrationClient() {
             serviceWorkerRegistration: registration 
           }
         );
+        console.log("[FCM] Firebase token received:", currentToken ? currentToken.substring(0, 30) + "..." : "null");
 
         if (currentToken) {
           // Send token to backend
+          console.log("[FCM] Sending token to save-fcm-token endpoint...");
           const response = await fetch("/api/save-fcm-token", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ token: currentToken, userId }),
+            credentials: "include" // IMPORTANT: include cookies for authentication
           });
           
+          console.log("[FCM] Response status:", response.status);
           if (response.ok) {
             setNotificationStatus("✅ Notifications enabled");
-            console.log("FCM token saved:", currentToken);
+            console.log("[FCM] ✅ FCM token saved successfully");
           } else {
-            setNotificationStatus("⚠️ Failed to save notification token");
+            const errorData = await response.text();
+            console.error("[FCM] ❌ Failed to save token. Status:", response.status, "Body:", errorData);
+            setNotificationStatus("⚠️ Failed to save notification token: " + response.status);
           }
         } else {
+          console.error("[FCM] ❌ No FCM token received from Firebase");
           setNotificationStatus("⚠️ No FCM token received");
         }
       } catch (error) {
-        console.error("Notification setup error:", error);
-        setNotificationStatus("❌ Notification setup failed");
+        const errorMsg = error instanceof Error ? error.message : String(error);
+        console.error("[FCM] ❌ Notification setup error:", errorMsg, error);
+        setNotificationStatus("❌ Notification setup failed: " + errorMsg);
       }
     };
 
