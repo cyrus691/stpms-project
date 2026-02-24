@@ -1,11 +1,10 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { useSession } from "next-auth/react";
 import * as firebaseMessaging from "@/lib/firebase-messaging";
 
 export default function NotificationRegistrationClient() {
   const { data: session } = useSession();
-  const [notificationStatus, setNotificationStatus] = useState<string>("");
 
   useEffect(() => {
     if (typeof window === "undefined") return;
