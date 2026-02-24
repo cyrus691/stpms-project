@@ -18,20 +18,19 @@ export default function NotificationRegistrationClient() {
     const isStandalone = (window.navigator as any).standalone || window.matchMedia('(display-mode: standalone)').matches;
     
     if (isIOS && !isStandalone) {
-      setNotificationStatus("⚠️ For notifications on iPhone: Tap Share → Add to Home Screen");
       console.warn("iOS requires PWA installation for push notifications");
       return;
     }
 
     // Check if notifications are supported
     if (!("Notification" in window)) {
-      setNotificationStatus("⚠️ This browser doesn't support notifications");
+      console.warn("Notifications not supported in this browser");
       return;
     }
 
     // Check if service workers are supported
     if (!("serviceWorker" in navigator)) {
-      setNotificationStatus("⚠️ Service workers not supported");
+      console.warn("Service workers not supported");
       return;
     }
 
@@ -43,8 +42,7 @@ export default function NotificationRegistrationClient() {
         console.log("[FCM] Notification permission result:", permission);
         
         if (permission !== "granted") {
-          console.error("[FCM] ❌ User denied notification permission");
-          setNotificationStatus("⚠️ Notification permission denied");
+          console.log("[FCM] Notification permission denied by user");
           return;
         }
 
@@ -61,13 +59,11 @@ export default function NotificationRegistrationClient() {
           
           if (!registration) {
             console.error("[FCM] ❌ Registration returned null");
-            setNotificationStatus("❌ Service worker registration returned null");
             return;
           }
         } catch (regError) {
           const regErrorMsg = regError instanceof Error ? regError.message : String(regError);
-          console.error("[FCM] ❌ Service worker registration FAILED:", regErrorMsg, regError);
-          setNotificationStatus("❌ Service worker failed: " + regErrorMsg);
+          console.error("[FCM] ❌ Service worker registration FAILED:", regErrorMsg);
           return;
         }
 
@@ -102,8 +98,7 @@ export default function NotificationRegistrationClient() {
           );
         } catch (tokenError) {
           const tokenMsg = tokenError instanceof Error ? tokenError.message : String(tokenError);
-          console.error("[FCM] ❌ Failed to get FCM token:", tokenMsg, tokenError);
-          setNotificationStatus("❌ Failed to get FCM token: " + tokenMsg);
+          console.error("[FCM] ❌ Failed to get FCM token:", tokenMsg);
           return;
         }
         console.log("[FCM] Firebase token received:", currentToken ? currentToken.substring(0, 30) + "..." : "null");
@@ -120,26 +115,21 @@ export default function NotificationRegistrationClient() {
           
           console.log("[FCM] Response status:", response.status);
           if (response.ok) {
-            setNotificationStatus("✅ Notifications enabled");
             console.log("[FCM] ✅ FCM token saved successfully");
           } else {
-            const errorData = await response.text();
-            console.error("[FCM] ❌ Failed to save token. Status:", response.status, "Body:", errorData);
-            setNotificationStatus("⚠️ Failed to save notification token: " + response.status);
+            console.error("[FCM] ❌ Failed to save token. Status:", response.status);
           }
         } else {
           console.error("[FCM] ❌ No FCM token received from Firebase");
-          setNotificationStatus("⚠️ No FCM token received");
         }
       } catch (error) {
         const errorMsg = error instanceof Error ? error.message : String(error);
-        console.error("[FCM] ❌ Notification setup error:", errorMsg, error);
-        setNotificationStatus("❌ Notification setup failed: " + errorMsg);
+        console.error("[FCM] ❌ Notification setup error:", errorMsg);
       }
     };
 
     requestNotificationPermission();
   }, [session]);
   
-  return null; // Status notifications are handled silently, no UI feedback needed
+  return null;
 }
