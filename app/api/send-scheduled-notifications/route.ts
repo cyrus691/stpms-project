@@ -132,12 +132,18 @@ export async function POST(request: Request) {
     });
     for (const userId in remindersByUser) {
       const user = await User.findById(userId).lean();
-      if (!user || !user.fcmTokens || user.fcmTokens.length === 0) continue;
+      console.log(`[CRON] User ${userId}: has fcmTokens? ${user?.fcmTokens ? 'YES (' + user.fcmTokens.length + ' tokens)' : 'NO'}`);
+      if (!user || !user.fcmTokens || user.fcmTokens.length === 0) {
+        console.log(`[CRON] Skipping user ${userId} - no FCM tokens`);
+        continue;
+      }
       for (const reminder of remindersByUser[userId]) {
         // 1hr before notification
         const remindAt = new Date(reminder.remindAt);
         const diff = remindAt.getTime() - now.getTime();
+        console.log(`[CRON] Reminder "${reminder.title}": remindAt=${remindAt.toISOString()}, diff=${diff}ms, will send=${diff > 0 && diff <= 60 * 60 * 1000}`);
         if (diff > 0 && diff <= 60 * 60 * 1000) {
+          console.log(`[CRON] Sending "Reminder in 1 hour" to ${user.fcmTokens.length} token(s)`);
           await sendFcmNotification(user.fcmTokens, {
             title: `Reminder in 1 hour`,
             body: `${reminder.title}: ${reminder.note || ''} at ${remindAt.toLocaleString()}`,
@@ -145,6 +151,7 @@ export async function POST(request: Request) {
           });
         }
         if (Math.abs(diff) < 60 * 1000) {
+          console.log(`[CRON] Sending "Reminder now" to ${user.fcmTokens.length} token(s)`);
           await sendFcmNotification(user.fcmTokens, {
             title: `Reminder now`,
             body: `${reminder.title}: ${reminder.note || ''} (${remindAt.toLocaleString()})`,
