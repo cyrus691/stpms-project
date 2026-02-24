@@ -106,6 +106,9 @@ export default function NotificationRegistrationClient() {
         if (currentToken) {
           // Send token to backend
           console.log("[FCM] Sending token to save-fcm-token endpoint...");
+          console.log("[FCM] userId:", userId);
+          console.log("[FCM] token:", currentToken.substring(0, 30) + "...");
+          
           const response = await fetch("/api/save-fcm-token", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -114,10 +117,15 @@ export default function NotificationRegistrationClient() {
           });
           
           console.log("[FCM] Response status:", response.status);
+          
+          const responseData = await response.json();
+          console.log("[FCM] Response body:", responseData);
+          
           if (response.ok) {
             console.log("[FCM] ✅ FCM token saved successfully");
           } else {
             console.error("[FCM] ❌ Failed to save token. Status:", response.status);
+            console.error("[FCM] Error details:", responseData);
           }
         } else {
           console.error("[FCM] ❌ No FCM token received from Firebase");
