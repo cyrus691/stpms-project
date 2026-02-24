@@ -51,20 +51,53 @@ export default function NotificationRegistrationClient() {
 
         console.log("[FCM] Permission granted! Registering service worker...");
         // Register service worker
-        const registration = await navigator.serviceWorker.register("/firebase-messaging-sw.js");
-        console.log("[FCM] Service worker registered:", registration);
-        await navigator.serviceWorker.ready;
-        console.log("[FCM] Service worker ready");
+        let registration;
+        try {
+          registration = await navigator.serviceWorker.register("/firebase-messaging-sw.js", { scope: "/" });
+          console.log("[FCM] ✅ Service worker registered successfully", registration);
+        } catch (regError) {
+          const regErrorMsg = regError instanceof Error ? regError.message : String(regError);
+          console.error("[FCM] ❌ Service worker registration FAILED:", regErrorMsg, regError);
+          setNotificationStatus("❌ Service worker registration failed: " + regErrorMsg);
+          return;
+        }
+
+        if (!registration) {
+          console.error("[FCM] ❌ Registration object is null/undefined!");
+          setNotificationStatus("❌ Service worker registration returned null");
+          return;
+        }
+
+        try {
+          await navigator.serviceWorker.ready;
+          console.log("[FCM] ✅ Service worker ready");
+        } catch (readyError) {
+          const readyMsg = readyError instanceof Error ? readyError.message : String(readyError);
+          console.error("[FCM] ❌ Service worker ready check failed:", readyMsg);
+          setNotificationStatus("❌ Service worker not ready: " + readyMsg);
+          return;
+        }
         
         // Get FCM token
         console.log("[FCM] Getting FCM token from Firebase...");
-        const currentToken = await firebaseMessaging.getToken(
-          firebaseMessaging.messaging, 
-          { 
-            vapidKey: firebaseMessaging.vapidKey, 
-            serviceWorkerRegistration: registration 
-          }
-        );
+        console.log("[FCM] Config - vapidKey:", firebaseMessaging.vapidKey ? "✅ set" : "❌ missing");
+        console.log("[FCM] Config - messaging:", firebaseMessaging.messaging ? "✅ set" : "❌ missing");
+        
+        let currentToken;
+        try {
+          currentToken = await firebaseMessaging.getToken(
+            firebaseMessaging.messaging, 
+            { 
+              vapidKey: firebaseMessaging.vapidKey, 
+              serviceWorkerRegistration: registration 
+            }
+          );
+        } catch (tokenError) {
+          const tokenMsg = tokenError instanceof Error ? tokenError.message : String(tokenError);
+          console.error("[FCM] ❌ Failed to get FCM token:", tokenMsg, tokenError);
+          setNotificationStatus("❌ Failed to get FCM token: " + tokenMsg);
+          return;
+        }
         console.log("[FCM] Firebase token received:", currentToken ? currentToken.substring(0, 30) + "..." : "null");
 
         if (currentToken) {
