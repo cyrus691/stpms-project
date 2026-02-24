@@ -17,8 +17,11 @@ export default function NotificationRegistrationClient() {
     const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
     const isStandalone = (window.navigator as any).standalone || window.matchMedia('(display-mode: standalone)').matches;
     
+    console.log("[FCM] Platform detection - userAgent:", navigator.userAgent);
+    console.log("[FCM] isIOS:", isIOS, "isStandalone:", isStandalone);
+    
     if (isIOS && !isStandalone) {
-      console.warn("iOS requires PWA installation for push notifications");
+      console.warn("[FCM] iOS requires PWA installation for push notifications");
       return;
     }
 
