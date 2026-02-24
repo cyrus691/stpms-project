@@ -1,10 +1,11 @@
 "use client";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useSession } from "next-auth/react";
 import * as firebaseMessaging from "@/lib/firebase-messaging";
 
 export default function NotificationRegistrationClient() {
   const { data: session } = useSession();
+  const onMessageSetupRef = useRef(false);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -82,6 +83,33 @@ export default function NotificationRegistrationClient() {
           const readyMsg = readyError instanceof Error ? readyError.message : String(readyError);
           console.error("[FCM] ⚠️ Service worker ready check issue:", readyMsg);
           console.log("[FCM] Continuing anyway, might still work...");
+        }
+
+        if (!onMessageSetupRef.current) {
+          onMessageSetupRef.current = true;
+          firebaseMessaging.onMessage(firebaseMessaging.messaging, async (payload) => {
+            console.log("[FCM] Foreground message received:", payload);
+            const title = payload?.notification?.title || "STPMS Reminder";
+            const body = payload?.notification?.body || "";
+            const options = {
+              body,
+              icon: "/icon-192x192.png",
+              badge: "/badge-72x72.png",
+              image: payload?.notification?.image || "/notification-banner.png",
+              data: payload?.data || {}
+            } as NotificationOptions;
+
+            try {
+              if (registration?.showNotification) {
+                await registration.showNotification(title, options);
+              } else if (Notification.permission === "granted") {
+                new Notification(title, options);
+              }
+            } catch (notifyError) {
+              const notifyMsg = notifyError instanceof Error ? notifyError.message : String(notifyError);
+              console.error("[FCM] ❌ Foreground notification failed:", notifyMsg);
+            }
+          });
         }
         
         // Get FCM token
