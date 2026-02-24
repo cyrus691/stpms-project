@@ -20,25 +20,32 @@ export async function POST(request: Request) {
       });
     }
 
+    const logs: string[] = [];
+    const log = (msg: string) => {
+      console.log(msg);
+      logs.push(msg);
+    };
+
     // Connect to database
-    console.log('[CRON] Connecting to database...');
+    log('[CRON] Connecting to database...');
     await connectDB();
-    console.log('[CRON] Database connected');
+    log('[CRON] Database connected');
 
     const StudentTask = getStudentTaskModel(mongoose.connection);
     const StudentTimetableEntry = getStudentTimetableEntryModel(mongoose.connection);
     const User = getUserModel(mongoose.connection);
     const now = new Date();
     const oneHourLater = new Date(now.getTime() + 60 * 60 * 1000);
-    console.log('[CRON] Starting notification check at', now.toISOString());
+    log('[CRON] Starting notification check at ' + now.toISOString());
+    log('[CRON] Will check for items due between ' + now.toISOString() + ' and ' + oneHourLater.toISOString());
 
     // --- TASKS: Notify for tasks due in 1 hour or now ---
-    console.log('[CRON] Checking tasks...');
+    log('[CRON] Checking tasks...');
     const tasks = await StudentTask.find({
       status: { $in: ['pending', 'overdue'] },
       dueDate: { $gte: now, $lte: oneHourLater },
     }).lean();
-    console.log(`[CRON] Found ${tasks.length} tasks due soon`);
+    log(`[CRON] Found ${tasks.length} tasks due soon`);
     const tasksByUser: Record<string, any[]> = {};
     tasks.forEach(task => {
       const userId = task.userId?.toString();
@@ -71,12 +78,12 @@ export async function POST(request: Request) {
     }
 
     // --- TIMETABLE: Notify for classes starting in 1 hour or now ---
-    console.log('[CRON] Checking timetables...');
+    log('[CRON] Checking timetables...');
     const timetableEntries = await StudentTimetableEntry.find({
       startTime: { $exists: true, $ne: null },
       userId: { $exists: true, $ne: null },
     }).lean();
-    console.log(`[CRON] Found ${timetableEntries.length} timetable entries`);
+    log(`[CRON] Found ${timetableEntries.length} timetable entries`);
     const timetableByUser: Record<string, any[]> = {};
     timetableEntries.forEach(entry => {
       const userId = entry.userId?.toString();
@@ -113,7 +120,7 @@ export async function POST(request: Request) {
     }
 
     // --- REMINDERS: Notify for reminders due in 1 hour or now ---
-    console.log('[CRON] Checking reminders...');
+    log('[CRON] Checking reminders...');
     const StudentReminder = getStudentReminderModel(mongoose.connection);
     const reminders = await StudentReminder.find({
       status: 'active',
@@ -122,7 +129,7 @@ export async function POST(request: Request) {
         $lte: oneHourLater,
       },
     }).lean();
-    console.log(`[CRON] Found ${reminders.length} reminders due soon`);
+    log(`[CRON] Found ${reminders.length} reminders due soon`);
     const remindersByUser: Record<string, any[]> = {};
     reminders.forEach(reminder => {
       const userId = reminder.userId?.toString();
@@ -132,18 +139,18 @@ export async function POST(request: Request) {
     });
     for (const userId in remindersByUser) {
       const user = await User.findById(userId).lean();
-      console.log(`[CRON] User ${userId}: has fcmTokens? ${user?.fcmTokens ? 'YES (' + user.fcmTokens.length + ' tokens)' : 'NO'}`);
+      log(`[CRON] User ${userId}: has fcmTokens? ${user?.fcmTokens ? 'YES (' + user.fcmTokens.length + ' tokens)' : 'NO'}`);
       if (!user || !user.fcmTokens || user.fcmTokens.length === 0) {
-        console.log(`[CRON] Skipping user ${userId} - no FCM tokens`);
+        log(`[CRON] Skipping user ${userId} - no FCM tokens`);
         continue;
       }
       for (const reminder of remindersByUser[userId]) {
         // 1hr before notification
         const remindAt = new Date(reminder.remindAt);
         const diff = remindAt.getTime() - now.getTime();
-        console.log(`[CRON] Reminder "${reminder.title}": remindAt=${remindAt.toISOString()}, diff=${diff}ms, will send=${diff > 0 && diff <= 60 * 60 * 1000}`);
+        log(`[CRON] Reminder "${reminder.title}": remindAt=${remindAt.toISOString()}, diff=${diff}ms, will send=${diff > 0 && diff <= 60 * 60 * 1000}`);
         if (diff > 0 && diff <= 60 * 60 * 1000) {
-          console.log(`[CRON] Sending "Reminder in 1 hour" to ${user.fcmTokens.length} token(s)`);
+          log(`[CRON] Sending "Reminder in 1 hour" to ${user.fcmTokens.length} token(s)`);
           await sendFcmNotification(user.fcmTokens, {
             title: `Reminder in 1 hour`,
             body: `${reminder.title}: ${reminder.note || ''} at ${remindAt.toLocaleString()}`,
@@ -151,7 +158,7 @@ export async function POST(request: Request) {
           });
         }
         if (Math.abs(diff) < 60 * 1000) {
-          console.log(`[CRON] Sending "Reminder now" to ${user.fcmTokens.length} token(s)`);
+          log(`[CRON] Sending "Reminder now" to ${user.fcmTokens.length} token(s)`);
           await sendFcmNotification(user.fcmTokens, {
             title: `Reminder now`,
             body: `${reminder.title}: ${reminder.note || ''} (${remindAt.toLocaleString()})`,
@@ -161,8 +168,8 @@ export async function POST(request: Request) {
       }
     }
 
-    console.log('[CRON] Notifications sent successfully');
-    return new Response(JSON.stringify({ success: true }), { status: 200 });
+    log('[CRON] All notifications completed');
+    return new Response(JSON.stringify({ success: true, logs }), { status: 200 });
   } catch (error) {
     console.error('[CRON] Error:', error);
     const errorMessage = error instanceof Error ? error.message : String(error);
